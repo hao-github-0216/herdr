@@ -104,7 +104,7 @@ jobs:
 
       - name: Install Rust tools
         if: steps.plan.outputs.should_publish == 'true'
-        uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2.87.22
+        uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
         with:
           tool: just,cargo-nextest
 
@@ -273,7 +273,7 @@ jobs:
           "channel=preview" | Out-File -Encoding utf8 -Append BUILD_INFO.txt
 
       - name: Upload artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: ${{ matrix.name }}
           path: |
