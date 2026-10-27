@@ -26,6 +26,12 @@ impl HeadlessServer {
         &mut self,
         params: crate::api::schema::ServerLiveHandoffParams,
     ) -> io::Result<()> {
+        // Stop admission and wait for acknowledgements before importing. The
+        // replacement takes transaction-scoped locks only, never a lifetime lock.
+        if let Err(error) = self.app.task_service.quiesce(Duration::from_secs(5)) {
+            self.app.task_service.resume();
+            return Err(error);
+        }
         info!("starting live handoff");
         let import_exe = params.import_exe.as_deref().map(std::path::PathBuf::from);
         let socket_path = crate::server::handoff::handoff_socket_path();
@@ -41,6 +47,7 @@ impl HeadlessServer {
             Ok(listener) => listener,
             Err(err) => {
                 self.handoff_in_progress = false;
+                self.app.task_service.resume();
                 return Err(err);
             }
         };
@@ -284,6 +291,7 @@ impl HeadlessServer {
             }
         }
         self.handoff_in_progress = false;
+        self.app.task_service.resume();
         let _ = std::fs::remove_file(socket_path);
     }
 

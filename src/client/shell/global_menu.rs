@@ -4,6 +4,10 @@ use super::*;
 pub(super) enum ClientGlobalMenuAction {
     Binding(crate::input::KeybindAction),
     WhatsNew,
+    Inspector,
+    Kanban,
+    /// Index into `snapshot.commands`: a `[[keys.command]]` entry with a description.
+    Command(usize),
 }
 
 pub(super) fn global_menu_attention(snapshot: &ClientShellSnapshot) -> bool {
@@ -21,8 +25,23 @@ pub(super) fn global_menu_item_has_badge(
 
 pub(super) fn global_menu_items(
     snapshot: &ClientShellSnapshot,
-) -> Vec<(&'static str, ClientGlobalMenuAction)> {
-    let mut items = vec![
+) -> Vec<(std::borrow::Cow<'static, str>, ClientGlobalMenuAction)> {
+    let mut items: Vec<(std::borrow::Cow<'static, str>, ClientGlobalMenuAction)> = Vec::new();
+    // Custom commands that carry a description are clickable from the menu too.
+    for (index, command) in snapshot.commands.iter().enumerate() {
+        if command.action == crate::protocol::ClientShellCommandAction::Unknown {
+            continue;
+        }
+        if let Some(description) = command
+            .description
+            .as_deref()
+            .map(str::trim)
+            .filter(|description| !description.is_empty())
+        {
+            items.push((description.to_string().into(), ClientGlobalMenuAction::Command(index)));
+        }
+    }
+    let standard: Vec<(&'static str, ClientGlobalMenuAction)> = vec![
         (
             "settings",
             ClientGlobalMenuAction::Binding(crate::input::KeybindAction::Settings),
@@ -36,20 +55,29 @@ pub(super) fn global_menu_items(
             ClientGlobalMenuAction::Binding(crate::input::KeybindAction::ReloadConfig),
         ),
     ];
+    items.extend(standard.into_iter().map(|(label, action)| (label.into(), action)));
     if snapshot.update_available.is_some() || snapshot.latest_release_notes_available {
         items.push((
             if snapshot.update_available.is_some() {
                 "update ready"
             } else {
                 "what's new"
-            },
+            }
+            .into(),
             ClientGlobalMenuAction::WhatsNew,
         ));
     }
     items.push((
-        "detach",
+        "detach".into(),
         ClientGlobalMenuAction::Binding(crate::input::KeybindAction::Detach),
     ));
+    if super::retired_presentation::AVAILABLE {
+        items.push((
+            "files / git / tasks inspector".into(),
+            ClientGlobalMenuAction::Inspector,
+        ));
+        items.push(("kanban board (read-only)".into(), ClientGlobalMenuAction::Kanban));
+    }
     items
 }
 
@@ -104,6 +132,21 @@ impl ClientShellState {
                 self.record_binding(crate::input::KeybindMatch::Action(binding), outcome)
             }
             ClientGlobalMenuAction::WhatsNew => self.open_release_notes(),
+            ClientGlobalMenuAction::Inspector => self.toggle_inspector(outcome),
+            ClientGlobalMenuAction::Kanban => self.open_kanban(outcome),
+            ClientGlobalMenuAction::Command(index) => {
+                let Some((command_id, command_action)) =
+                    self.snapshot.as_deref().and_then(|snapshot| {
+                        snapshot
+                            .commands
+                            .get(index)
+                            .map(|command| (command.command_id.clone(), command.action))
+                    })
+                else {
+                    return;
+                };
+                self.invoke_custom_command(command_id, command_action, outcome);
+            }
         }
         outcome.repaint = true;
     }

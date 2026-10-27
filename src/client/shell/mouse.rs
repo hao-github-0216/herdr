@@ -676,11 +676,62 @@ impl ClientShellState {
         }
     }
 
+    fn handle_terminal_selection_continuation(
+        &mut self,
+        mouse: MouseEvent,
+        outcome: &mut ClientShellInput,
+    ) -> bool {
+        if mouse.kind == MouseEventKind::Drag(MouseButton::Left) {
+            let selection_hit = self.active_selection_pane();
+            if let Some(hit) = selection_hit {
+                self.update_selection_drag(&hit, mouse.column, mouse.row, outcome);
+                // Consume every motion, but do not rebuild a frame for every intermediate position.
+                outcome.repaint |= !outcome.actions.is_empty()
+                    || self.request_selection_drag_repaint(std::time::Instant::now());
+                return true;
+            }
+        }
+        if mouse.kind == MouseEventKind::Up(MouseButton::Left)
+            && self.word_selection_gesture.is_some()
+        {
+            self.finish_word_selection(outcome);
+            outcome.repaint = true;
+            return true;
+        }
+        if mouse.kind == MouseEventKind::Up(MouseButton::Left) && self.selection.is_some() {
+            self.stop_selection_autoscroll();
+            let copied = self
+                .selection
+                .as_mut()
+                .is_some_and(crate::selection::Selection::finish);
+            if copied && self.config.copy_on_select {
+                self.request_selection_copy(outcome, true);
+                self.selection = None;
+            } else if self
+                .selection
+                .as_ref()
+                .is_some_and(crate::selection::Selection::is_just_click)
+            {
+                self.selection = None;
+            }
+            if copied {
+                self.last_pane_click = None;
+            }
+            outcome.repaint = true;
+            return true;
+        }
+        false
+    }
+
     /// Routes mouse input through overlays, shell controls, and pane interactions.
     ///
     /// Hit-test order determines which overlapping control receives the event;
     /// the sidebar toggle takes precedence over the agent scrollbar beneath it.
     pub(super) fn handle_mouse(&mut self, mouse: MouseEvent, outcome: &mut ClientShellInput) {
+        self.discard_retired_overlay();
+        if self.handle_inspector_mouse(mouse, outcome) {
+            return;
+        }
         self.update_link_hover(mouse, outcome);
         let point = (mouse.column, mouse.row);
         if self.mode == ClientShellMode::Navigate
@@ -856,6 +907,9 @@ impl ClientShellState {
                     .find_map(|pending| match &mut pending.kind {
                         PendingEndpointKind::PaneLinkActivate {
                             fallback_events, ..
+                        }
+                        | PendingEndpointKind::FileLinkActivate {
+                            fallback_events, ..
                         } if !fallback_events
                             .iter()
                             .any(|event| event.kind == MouseEventKind::Up(MouseButton::Left)) =>
@@ -909,6 +963,25 @@ impl ClientShellState {
             ) {
                 return;
             }
+        }
+        // Terminal-origin drag/release above retains its rightful sink even
+        // while the board is visible. Board-origin releases remain consumed
+        // after close/resize/source changes.
+        if matches!(self.overlay, Some(ClientShellOverlay::Kanban))
+            && (self
+                .selection
+                .as_ref()
+                .is_some_and(|selection| selection.is_in_progress())
+                || self
+                    .word_selection_gesture
+                    .as_ref()
+                    .is_some_and(|gesture| !gesture.released))
+            && self.handle_terminal_selection_continuation(mouse, outcome)
+        {
+            return;
+        }
+        if self.route_kanban_mouse(mouse, outcome) {
+            return;
         }
         if self.popup_pending {
             return;
@@ -975,19 +1048,18 @@ impl ClientShellState {
                     .map(|pane| pane.content_revision);
                 self.last_pane_click = None;
                 let pane_id = hit.pane_id.clone();
+                let params = crate::api::schema::PaneLinkActivateParams {
+                    pane_id: pane_id.clone(),
+                    viewport_row,
+                    col,
+                    content_revision,
+                    offset_from_bottom: hit.scroll.map(|metrics| metrics.offset_from_bottom as u64),
+                };
+                let file_attempt = self.file_link_attempt(params.clone());
                 self.push_endpoint_method_with_kind(
-                    crate::api::schema::Method::PaneLinkActivate(
-                        crate::api::schema::PaneLinkActivateParams {
-                            pane_id: pane_id.clone(),
-                            viewport_row,
-                            col,
-                            content_revision,
-                            offset_from_bottom: hit
-                                .scroll
-                                .map(|metrics| metrics.offset_from_bottom as u64),
-                        },
-                    ),
+                    crate::api::schema::Method::PaneLinkActivate(params),
                     PendingEndpointKind::PaneLinkActivate {
+                        file_attempt,
                         pane_id,
                         inner_rect: hit.inner_rect,
                         fallback_events: vec![mouse],
@@ -1738,43 +1810,7 @@ impl ClientShellState {
             return;
         }
 
-        if mouse.kind == MouseEventKind::Drag(MouseButton::Left) {
-            let selection_hit = self.active_selection_pane();
-            if let Some(hit) = selection_hit {
-                self.update_selection_drag(&hit, mouse.column, mouse.row, outcome);
-                // Consume every motion, but do not rebuild a frame for every intermediate position.
-                outcome.repaint |= !outcome.actions.is_empty()
-                    || self.request_selection_drag_repaint(std::time::Instant::now());
-                return;
-            }
-        }
-        if mouse.kind == MouseEventKind::Up(MouseButton::Left)
-            && self.word_selection_gesture.is_some()
-        {
-            self.finish_word_selection(outcome);
-            outcome.repaint = true;
-            return;
-        }
-        if mouse.kind == MouseEventKind::Up(MouseButton::Left) && self.selection.is_some() {
-            self.stop_selection_autoscroll();
-            let copied = self
-                .selection
-                .as_mut()
-                .is_some_and(crate::selection::Selection::finish);
-            if copied && self.config.copy_on_select {
-                self.request_selection_copy(outcome, true);
-                self.selection = None;
-            } else if self
-                .selection
-                .as_ref()
-                .is_some_and(crate::selection::Selection::is_just_click)
-            {
-                self.selection = None;
-            }
-            if copied {
-                self.last_pane_click = None;
-            }
-            outcome.repaint = true;
+        if self.handle_terminal_selection_continuation(mouse, outcome) {
             return;
         }
         if self.scroll_in_progress_selection(mouse, outcome) {

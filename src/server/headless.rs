@@ -2918,6 +2918,20 @@ impl HeadlessServer {
             return false;
         }
 
+        if let api::schema::Method::TaskSourceContext(params) = &msg.request.method {
+            let context = self
+                .app
+                .task_source_context(&params.pane_id, &self.client_shell_boot_id);
+            self.app
+                .task_service
+                .start_source_context(msg.request, context, msg.respond_to);
+            return false;
+        }
+        if crate::task_service::is_task_method(&msg.request.method) {
+            self.app.task_service.start(msg.request, msg.respond_to);
+            return false;
+        }
+
         let frozen_alt_screen_read = match self.alt_screen_read_conflict(&msg.request) {
             AltScreenReadConflict::None => None,
             AltScreenReadConflict::Frozen(snapshot) => Some(snapshot),
@@ -2986,6 +3000,19 @@ impl HeadlessServer {
         changed |= self.drain_all_internal_events_with_forwarding();
         if self.host_shutdown_requested() {
             Self::reject_api_request_for_shutdown(msg);
+            return changed;
+        }
+
+        if matches!(
+            &msg.request.method,
+            api::schema::Method::FileList(_)
+                | api::schema::Method::FilePreview(_)
+                | api::schema::Method::FileRead(_)
+                | api::schema::Method::GitStatus(_)
+                | api::schema::Method::GitDiff(_)
+                | api::schema::Method::GitLog(_)
+        ) {
+            self.app.start_api_read(msg.request, msg.respond_to);
             return changed;
         }
 

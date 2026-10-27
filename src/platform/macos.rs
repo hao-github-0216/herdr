@@ -9,6 +9,10 @@ use std::sync::OnceLock;
 
 pub(super) const REMOTE_BRIDGE_CLOCK: libc::clockid_t = libc::CLOCK_MONOTONIC;
 
+pub(super) fn pdf_tool_fallback_directories() -> &'static [&'static str] {
+    &["/opt/homebrew/bin", "/usr/local/bin"]
+}
+
 use super::{
     read_limited_reader, ClipboardCommand, ClipboardImage, ForegroundJob, ForegroundProcess,
     LimitedRead, Signal,

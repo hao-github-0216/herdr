@@ -7,10 +7,12 @@ pub mod events;
 pub mod integrations;
 pub mod panes;
 pub mod plugins;
+pub mod reads;
 pub mod response;
 pub mod server;
 pub mod session;
 pub mod tabs;
+pub mod tasks;
 pub mod workspaces;
 pub mod worktrees;
 
@@ -21,10 +23,12 @@ pub use events::*;
 pub use integrations::*;
 pub use panes::*;
 pub use plugins::*;
+pub use reads::*;
 pub use response::*;
 pub use server::*;
 pub use session::*;
 pub use tabs::*;
+pub use tasks::*;
 pub use workspaces::*;
 pub use worktrees::*;
 
@@ -45,6 +49,34 @@ pub struct Request {
 // the simple serde shape and avoids boxing churn across every caller.
 #[allow(clippy::large_enum_variant)]
 pub enum Method {
+    #[serde(rename = "task.create")]
+    TaskCreate(TaskCreateParams),
+    #[serde(rename = "task.list")]
+    TaskList(TaskListParams),
+    #[serde(rename = "task.get")]
+    TaskGet(TaskTarget),
+    #[serde(rename = "task.source_context")]
+    TaskSourceContext(TaskSourceContextParams),
+    #[serde(rename = "task.update")]
+    TaskUpdate(TaskUpdateParams),
+    #[serde(rename = "task.append_conclusion")]
+    TaskAppendConclusion(TaskAppendConclusionParams),
+    #[serde(rename = "pane.file_link.resolve")]
+    PaneFileLinkResolve(PaneLinkActivateParams),
+    #[serde(rename = "pane.file_link.activate")]
+    PaneFileLinkActivate(PaneLinkActivateParams),
+    #[serde(rename = "file.preview")]
+    FilePreview(FilePreviewParams),
+    #[serde(rename = "file.list")]
+    FileList(FilePathParams),
+    #[serde(rename = "file.read")]
+    FileRead(FilePathParams),
+    #[serde(rename = "git.status")]
+    GitStatus(GitReadParams),
+    #[serde(rename = "git.diff")]
+    GitDiff(GitDiffParams),
+    #[serde(rename = "git.log")]
+    GitLog(GitReadParams),
     #[serde(rename = "ping")]
     Ping(PingParams),
     #[serde(rename = "server.stop")]

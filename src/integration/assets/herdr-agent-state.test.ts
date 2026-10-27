@@ -9,6 +9,8 @@ const originalArgv = process.argv;
 const originalCreateConnection = net.createConnection;
 const originalEnvironment = {
   HERDR_ENV: process.env.HERDR_ENV,
+  HERDR_BIN_PATH: process.env.HERDR_BIN_PATH,
+  HERDR_WORKSPACE_ID: process.env.HERDR_WORKSPACE_ID,
   HERDR_OMP_IDLE_DEBOUNCE_MS: process.env.HERDR_OMP_IDLE_DEBOUNCE_MS,
   HERDR_PANE_ID: process.env.HERDR_PANE_ID,
   HERDR_SOCKET_PATH: process.env.HERDR_SOCKET_PATH,
@@ -88,6 +90,9 @@ function createExtensionHarness() {
 }
 
 function configureIntegrationEnvironment(recordingSocketPath: string) {
+  // Reporter fixtures do not opt into model tools via the test runner's pane.
+  delete process.env.HERDR_BIN_PATH;
+  delete process.env.HERDR_WORKSPACE_ID;
   // Tests may run inside an OMP shell; nested-session cases opt in explicitly.
   delete process.env.OMPCODE;
   process.env.HERDR_ENV = "1";
@@ -290,9 +295,9 @@ test("Pi reports a Windows session path", async () => {
       },
     },
   );
-  await waitFor(() => requests.length === 2);
+  await waitFor(() => requests.filter((r: any) => r.method !== "pane.report_metadata").length === 2);
 
-  expect(requests.map(requestSessionPath)).toEqual([sessionPath, sessionPath]);
+  expect(requests.filter((r: any) => r.method !== "pane.report_metadata").map(requestSessionPath)).toEqual([sessionPath, sessionPath]);
 });
 
 test("Pi reports idle only after the agent settles", async () => {
@@ -464,9 +469,12 @@ test("Pi waits for a replacement session report before publishing state", async 
   expect(
     requests.some((request) => isRecord(request) && request.method === "pane.report_agent"),
   ).toBe(false);
-
+  const selected = handlers.get("model_select")?.({ model: { id: "selected-during-session-report" } }, { mode: "tui" });
+  await Bun.sleep(10);
+  expect(requests.some((request: any) => request.method === "pane.report_metadata")).toBe(false);
   acknowledgeSessionReport?.();
   await sessionStartResult;
+  await selected;
 
   const stateDeadline = Date.now() + 1_000;
   while (
@@ -475,10 +483,11 @@ test("Pi waits for a replacement session report before publishing state", async 
   ) {
     await Bun.sleep(5);
   }
-  expect(requests.map((request) => (isRecord(request) ? request.method : undefined))).toEqual([
+  expect(requests.filter((request: any) => request.method !== "pane.report_metadata").map((request: any) => request.method)).toEqual([
     "pane.report_agent_session",
     "pane.report_agent",
   ]);
+  expect(requests.filter((request: any) => request.method === "pane.report_metadata").map((request: any) => request.params.tokens.model)).toEqual(["selected-during-session-report"]);
 });
 
 async function startDroppedFirstResponseServer(name: string) {
@@ -682,3 +691,49 @@ function requestSessionPath(request: unknown): unknown {
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
+
+test("Pi reports selected models in order, clears missing values, and ignores RPC model events", async () => {
+  const requests = await startRecordingServer("pi-models");
+  const { handlers, pi } = createExtensionHarness();
+  const { default: install } = await importFresh("./pi/herdr-agent-state.ts");
+  install(pi);
+  const context = { ...piContext(() => true), model: { id: "selected-a" } };
+  await handlers.get("session_start")?.({ reason: "startup" }, context);
+  const b = handlers.get("model_select")?.({ model: { id: "selected-b" }, source: "cycle" }, context);
+  const cleared = handlers.get("model_select")?.({ model: undefined, source: "restore" }, context);
+  await Promise.all([b, cleared]);
+  await handlers.get("model_select")?.({ model: { id: "rpc-only" } }, { ...context, mode: "rpc" });
+  await handlers.get("session_start")?.({ reason: "resume" }, { ...context, model: undefined });
+  const metadata = requests.filter((r: any) => r.method === "pane.report_metadata") as any[];
+  expect(metadata.map(r => r.params.tokens.model)).toEqual(["selected-a", "selected-b", null, null]);
+  expect(metadata.map(r => r.params.tokens.model_agent)).toEqual(["pi", "pi", null, null]);
+  expect(metadata.every(r => r.params.ttl_ms === undefined)).toBe(true);
+  expect(metadata.every((r, i) => i === 0 || r.params.seq > metadata[i - 1].params.seq)).toBe(true);
+  await waitFor(() => requestStates(requests).length === 2);
+  expect(requestStates(requests)).toEqual(["idle", "idle"]);
+});
+
+test.skipIf(originalPlatform === "win32")("Claude startup reports model or explicit null without reading transcripts", async () => {
+  const requests = await startRecordingServer("claude-models");
+  const script = new URL("./claude/herdr-agent-state.sh", import.meta.url).pathname;
+  for (const model of ["claude-selected", undefined, null, "   ", 123]) {
+    const child = Bun.spawn(["sh", script, "session"], {
+      env: { PATH: process.env.PATH!, HERDR_ENV: "1", HERDR_PANE_ID: "test:p1", HERDR_SOCKET_PATH: socketPath! },
+      stdin: "pipe", stdout: "pipe", stderr: "pipe",
+    });
+    child.stdin.write(JSON.stringify({ hook_event_name: "SessionStart", session_id: "synthetic", transcript_path: "/does-not-exist/fixture.jsonl", model }));
+    child.stdin.end();
+    expect(await child.exited).toBe(0);
+    expect(await new Response(child.stdout).text()).toBe("");
+  }
+  expect(requests.filter((r: any) => r.method === "pane.report_metadata").map((r: any) => r.params.tokens.model)).toEqual(["claude-selected", null, null, null, null]);
+  expect(requests.filter((r: any) => r.method === "pane.report_metadata").map((r: any) => r.params.tokens.model_agent)).toEqual(["claude", null, null, null, null]);
+  expect(requests.filter((r: any) => r.method === "pane.report_agent_session")).toHaveLength(5);
+  const before = requests.length;
+  for (const payload of [{ hook_event_name: "SessionStart", session_id: "x", agent_id: "child" }, { hook_event_name: "SessionStart", session_id: "x", cursor_version: "x" }, { hook_event_name: "Stop", session_id: "x" }]) {
+    const child = Bun.spawn(["sh", script, "session"], { env: { PATH: process.env.PATH!, HERDR_ENV: "1", HERDR_PANE_ID: "test:p1", HERDR_SOCKET_PATH: socketPath! }, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+    child.stdin.write(JSON.stringify(payload)); child.stdin.end();
+    expect(await child.exited).toBe(0);
+  }
+  expect(requests).toHaveLength(before);
+});

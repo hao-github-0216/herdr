@@ -31,6 +31,52 @@ If you want to end the session and stop its panes, stop the server:
 herdr server stop
 ```
 
+## Agent labels and reported models
+
+Default Agents rows prioritize each tab's actual label and its last reported
+selected session model. An unnamed tab retains its real label/number. Agent kind
+and space remain secondary context. Missing model metadata is omitted, not guessed;
+custom rows, grouping, and agent-view filters keep their configured behavior.
+Model metadata must include a matching `model_agent` owner (the detected CLI kind),
+so a previous Pi/Claude model is not shown on another CLI later using that pane.
+Old or ownerless model tokens are omitted; other custom tokens are unchanged.
+The current snapshot has no session identity to compare, so this is a kind-owner
+guard, not proof of an individual inference or process generation.
+
+The Pi integration reports the selected model on session start and model changes.
+Claude reports the model supplied by SessionStart, clearing a previous value when
+that authoritative event omits it. This version does not install newer Claude
+PostModelSwitch hooks: later `/model` switches may not update the label until a
+new SessionStart report. Neither integration claims to expose every physical
+backend dispatch, and neither reads settings or transcripts to guess it. Existing
+installed integration assets need the normal integration update to use this data;
+changing this checkout does not modify user hooks or configuration.
+
+## Withdrawn custom presentation and automatic Tasks entry
+
+This custom build keeps the left **Spaces / Agents** sidebar, its layout, custom
+rows, filters/grouping, names, tab visibility and reported selected-model labels.
+The right Files / Git / PDF / image / Tasks inspector and fullscreen Kanban have
+been withdrawn. They have no menu, key, mouse or file-link entry, reserve no
+terminal space, and perform no background reads or previews. Standard terminal
+selection, URL and supported OSC 8 link activation remain available.
+
+Fresh Pi integrations retain state/session/model reporting but register no Tasks
+tools or Tasks prompt section, including in headless hosts. Fresh Claude
+SessionStart hooks retain session/model reporting without adapter discovery or
+Tasks guidance. Integration versions remain Pi 10 and Claude 12.
+
+The Tasks service, saved data, handoff drain, JSON API, direct CLI and bounded
+adapter remain available for **explicit compatibility use**; they are not blocked
+or erased. See the [Tasks reference](https://github.com/herdrdev/herdr/blob/master/docs/next/api/tasks.md).
+Reports and verification are claims, not Herdr checks. Nothing automatically
+starts old todos, claims workers or marks done/pass.
+
+Replacing source or installed assets cannot revoke tools already loaded in an
+existing Pi host or remove guidance already sent to Claude. Existing sessions may
+retain those until natural reload; this withdrawal does not restart or prompt
+agents, rewrite user settings or remove data.
+
 ## Remote work through normal SSH
 
 SSH to the machine that has the code and credentials, then run Herdr there:

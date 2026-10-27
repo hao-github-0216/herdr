@@ -207,64 +207,74 @@ impl ClientShellState {
                     outcome.repaint = true;
                     return;
                 };
-                let Some(snapshot) = self.snapshot.as_deref() else {
-                    return;
-                };
-                let selection = (action == crate::protocol::ClientShellCommandAction::PluginAction)
-                    .then(|| {
-                        let selection = self.selection.as_ref()?;
-                        if !selection.is_visible() {
-                            return None;
-                        }
-                        if snapshot.focused_pane_id.as_deref() != Some(selection.pane_id.as_str()) {
-                            return None;
-                        }
-                        let content_revision = self
-                            .pane_surface
-                            .as_ref()?
-                            .panes
-                            .iter()
-                            .find(|pane| pane.pane_id == selection.pane_id)?
-                            .content_revision;
-                        let (anchor, cursor) = selection.ordered_cells();
-                        Some(crate::api::schema::PaneSelectionReadParams {
-                            pane_id: selection.pane_id.clone(),
-                            anchor: crate::api::schema::PaneTextPoint {
-                                row: anchor.0,
-                                col: anchor.1,
-                            },
-                            cursor: crate::api::schema::PaneTextPoint {
-                                row: cursor.0,
-                                col: cursor.1,
-                            },
-                            content_revision: Some(content_revision),
-                        })
-                    })
-                    .flatten();
-                let params = crate::api::schema::CommandInvokeParams {
-                    command_id,
-                    workspace_id: snapshot.focused_workspace_id.clone(),
-                    tab_id: snapshot.focused_tab_id.clone(),
-                    pane_id: snapshot.focused_pane_id.clone(),
-                    selection,
-                };
-                if action == crate::protocol::ClientShellCommandAction::Popup {
-                    self.popup_pending = true;
-                    self.popup_pending_deadline = None;
-                    if !self.push_endpoint_method_with_kind(
-                        crate::api::schema::Method::CommandInvoke(params),
-                        PendingEndpointKind::PopupCommand,
-                        outcome,
-                    ) {
-                        self.popup_pending = false;
-                    }
-                } else {
-                    self.push_endpoint_method(
-                        crate::api::schema::Method::CommandInvoke(params),
-                        outcome,
-                    );
-                }
+                self.invoke_custom_command(command_id, action, outcome);
             }
+        }
+    }
+
+    /// Invoke an endpoint-published custom command (keybinding or global menu entry).
+    pub(super) fn invoke_custom_command(
+        &mut self,
+        command_id: String,
+        action: crate::protocol::ClientShellCommandAction,
+        outcome: &mut ClientShellInput,
+    ) {
+        let Some(snapshot) = self.snapshot.as_deref() else {
+            return;
+        };
+        let selection = (action == crate::protocol::ClientShellCommandAction::PluginAction)
+            .then(|| {
+                let selection = self.selection.as_ref()?;
+                if !selection.is_visible() {
+                    return None;
+                }
+                if snapshot.focused_pane_id.as_deref() != Some(selection.pane_id.as_str()) {
+                    return None;
+                }
+                let content_revision = self
+                    .pane_surface
+                    .as_ref()?
+                    .panes
+                    .iter()
+                    .find(|pane| pane.pane_id == selection.pane_id)?
+                    .content_revision;
+                let (anchor, cursor) = selection.ordered_cells();
+                Some(crate::api::schema::PaneSelectionReadParams {
+                    pane_id: selection.pane_id.clone(),
+                    anchor: crate::api::schema::PaneTextPoint {
+                        row: anchor.0,
+                        col: anchor.1,
+                    },
+                    cursor: crate::api::schema::PaneTextPoint {
+                        row: cursor.0,
+                        col: cursor.1,
+                    },
+                    content_revision: Some(content_revision),
+                })
+            })
+            .flatten();
+        let params = crate::api::schema::CommandInvokeParams {
+            command_id,
+            workspace_id: snapshot.focused_workspace_id.clone(),
+            tab_id: snapshot.focused_tab_id.clone(),
+            pane_id: snapshot.focused_pane_id.clone(),
+            selection,
+        };
+        if action == crate::protocol::ClientShellCommandAction::Popup {
+            self.popup_pending = true;
+            self.popup_pending_deadline = None;
+            if !self.push_endpoint_method_with_kind(
+                crate::api::schema::Method::CommandInvoke(params),
+                PendingEndpointKind::PopupCommand,
+                outcome,
+            ) {
+                self.popup_pending = false;
+            }
+        } else {
+            self.push_endpoint_method(
+                crate::api::schema::Method::CommandInvoke(params),
+                outcome,
+            );
         }
     }
 
@@ -358,6 +368,28 @@ impl ClientShellState {
         kind: PendingEndpointKind,
         outcome: &mut ClientShellInput,
     ) -> bool {
+        if !self.retired_presentation_enabled()
+            && (matches!(
+                &kind,
+                PendingEndpointKind::Inspector { .. }
+                    | PendingEndpointKind::Tasks { .. }
+                    | PendingEndpointKind::FileLinkActivate { .. }
+            ) || matches!(
+                &method,
+                crate::api::schema::Method::PaneFileLinkResolve(_)
+                    | crate::api::schema::Method::PaneFileLinkActivate(_)
+                    | crate::api::schema::Method::FileList(_)
+                    | crate::api::schema::Method::FileRead(_)
+                    | crate::api::schema::Method::FilePreview(_)
+                    | crate::api::schema::Method::GitStatus(_)
+                    | crate::api::schema::Method::GitDiff(_)
+                    | crate::api::schema::Method::GitLog(_)
+                    | crate::api::schema::Method::TaskList(_)
+                    | crate::api::schema::Method::TaskGet(_)
+            ))
+        {
+            return false;
+        }
         let changes_focus = match &method {
             crate::api::schema::Method::WorkspaceFocus(_)
             | crate::api::schema::Method::TabFocus(_)
@@ -502,6 +534,18 @@ impl ClientShellState {
         request_id: &str,
         result: Result<crate::api::schema::ResponseResult, ClientShellEndpointError>,
     ) -> (bool, Vec<ClientShellAction>) {
+        // A task response must match both the request ID and its boot before
+        // consuming the pending lane; a misrouted reply cannot cancel live work.
+        if self
+            .pending_requests
+            .get(request_id)
+            .is_some_and(|pending| {
+                matches!(pending.kind, PendingEndpointKind::Tasks { .. })
+                    && pending.boot_id != boot_id
+            })
+        {
+            return (false, Vec::new());
+        }
         let Some(pending) = self.pending_requests.remove(request_id) else {
             return (false, Vec::new());
         };
@@ -512,6 +556,40 @@ impl ClientShellState {
                 .is_none_or(|snapshot| snapshot.boot_id != boot_id)
         {
             return (false, Vec::new());
+        }
+        if let PendingEndpointKind::FileLinkActivate {
+            attempt,
+            inner_rect,
+            fallback_events,
+        } = pending.kind
+        {
+            return self.complete_file_link(attempt, inner_rect, fallback_events, result);
+        }
+        if let PendingEndpointKind::PaneLinkActivate {
+            file_attempt,
+            fallback_events,
+            ..
+        } = &pending.kind
+        {
+            if result
+                .as_ref()
+                .err()
+                .is_some_and(|error| error.code.as_deref() == Some("endpoint_cancelled"))
+                || file_attempt
+                    .as_ref()
+                    .is_some_and(|attempt| !self.file_link_attempt_current(attempt))
+            {
+                self.url_click_consumes_until_up = !fallback_events
+                    .iter()
+                    .any(|event| matches!(event.kind, crossterm::event::MouseEventKind::Up(_)));
+                return (false, Vec::new());
+            }
+        }
+        if let PendingEndpointKind::Tasks { target, read } = pending.kind {
+            return self.complete_tasks(target, read, result);
+        }
+        if let PendingEndpointKind::Inspector { target, read } = pending.kind {
+            return self.complete_inspector(target, read, result);
         }
         if let PendingEndpointKind::PaneLinkResolve { target } = pending.kind {
             return self.complete_link_hover(target, result);
@@ -567,6 +645,9 @@ impl ClientShellState {
             }
         }
         match pending.kind {
+            PendingEndpointKind::Tasks { .. }
+            | PendingEndpointKind::Inspector { .. }
+            | PendingEndpointKind::FileLinkActivate { .. } => unreachable!("handled above"),
             PendingEndpointKind::Generic => {}
             PendingEndpointKind::PaneLinkResolve { .. } => unreachable!("handled above"),
             PendingEndpointKind::ProductAnnouncementDismiss { version, id } => {
@@ -662,6 +743,7 @@ impl ClientShellState {
                 return self.complete_word_selection_row(pane_id, absolute_row, generation, result);
             }
             PendingEndpointKind::PaneLinkActivate {
+                file_attempt,
                 pane_id,
                 inner_rect,
                 fallback_events,
@@ -704,6 +786,17 @@ impl ClientShellState {
                         (false, vec![ClientShellAction::OpenSafeWebUrl(url)])
                     }
                     Ok(crate::api::schema::ResponseResult::PaneLinkActivated { .. }) => {
+                        let mut outcome = ClientShellInput::default();
+                        if let (Some(attempt), Some(events)) = (file_attempt, replay.as_ref()) {
+                            if self.request_file_link(
+                                attempt,
+                                inner_rect,
+                                events.clone(),
+                                &mut outcome,
+                            ) {
+                                return (outcome.repaint, outcome.actions);
+                            }
+                        }
                         (false, replay_action(replay))
                     }
                     Ok(_) => {
@@ -717,11 +810,11 @@ impl ClientShellState {
                     Err(error)
                         if matches!(
                             error.code.as_deref(),
-                            Some("stale_content" | "stale_target" | "endpoint_cancelled")
+                            Some("stale_content" | "stale_target")
                         ) =>
                     {
                         self.url_click_consumes_until_up = completed_before_release;
-                        (false, Vec::new())
+                        (self.show_file_link_retry_notice(), Vec::new())
                     }
                     Err(_) => (true, replay_action(replay)),
                 };

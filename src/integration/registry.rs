@@ -222,6 +222,14 @@ pub(crate) fn hermes_install_layout_available() -> bool {
     }
 }
 
+/// Automatic Tasks entry is withdrawn; direct compatibility calls remain explicit.
+pub(crate) fn tasks_entry_status(
+    _target: crate::api::schema::IntegrationTarget,
+    _path: &Path,
+) -> &'static str {
+    "automatic Tasks entry withdrawn; direct compatibility CLI remains; existing-session tools may persist until natural reload"
+}
+
 pub(crate) fn installed_integration_statuses() -> Vec<super::IntegrationStatus> {
     integration_specs()
         .into_iter()

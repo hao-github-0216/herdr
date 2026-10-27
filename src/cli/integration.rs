@@ -44,6 +44,10 @@ fn integration_status(args: &[String]) -> std::io::Result<i32> {
             status.expected_version,
         );
         println!("{target}: {state} ({})", status.path.display());
+        println!(
+            "  Tasks: {}",
+            crate::integration::tasks_entry_status(status.target, &status.path)
+        );
     }
 
     if let Some(status) = crate::integration::experimental_letta_integration_status() {

@@ -42,6 +42,51 @@ pub struct ErrorBody {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ResponseResult {
+    TaskSourceContext {
+        context: super::TaskSourceContextInfo,
+    },
+    TaskRecord {
+        store_id: String,
+        task: super::TaskInfo,
+        replayed: bool,
+        conclusion_id: Option<String>,
+    },
+    TaskList {
+        store_id: String,
+        tasks: Vec<super::TaskSummary>,
+        next_after: Option<String>,
+    },
+    FilePreview {
+        content: super::FilePreviewContent,
+    },
+    FileReference {
+        reference: Option<super::FileReference>,
+    },
+    FileList {
+        root: String,
+        entries: Vec<super::FileEntry>,
+        truncated: bool,
+    },
+    FileRead {
+        text: String,
+        binary: bool,
+        truncated: bool,
+    },
+    GitStatus {
+        root: String,
+        branch: String,
+        entries: Vec<super::GitFileEntry>,
+        truncated: bool,
+    },
+    GitDiff {
+        text: String,
+        truncated: bool,
+    },
+    GitLog {
+        root: String,
+        text: String,
+        truncated: bool,
+    },
     Pong {
         version: String,
         protocol: u32,

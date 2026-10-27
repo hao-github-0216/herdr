@@ -23,6 +23,7 @@ mod config;
 mod copy_mode;
 mod detect;
 mod events;
+mod file_preview;
 use ghostty_vt as ghostty;
 mod handoff_runtime;
 mod input;
@@ -53,6 +54,8 @@ mod selection;
 mod server;
 mod session;
 mod sound;
+mod task_service;
+mod task_store;
 mod terminal;
 mod terminal_effects;
 mod terminal_modes;
@@ -517,6 +520,9 @@ fn main() -> io::Result<()> {
             std::process::exit(2);
         }
     };
+    if let Some(result) = file_preview::maybe_run(&raw_args) {
+        return result;
+    }
     #[cfg(windows)]
     if let Some(result) = platform::maybe_activate_desktop_notification(&raw_args) {
         return result;

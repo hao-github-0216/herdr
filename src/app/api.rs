@@ -3,10 +3,14 @@ use std::time::{Duration, Instant};
 mod agent_view;
 mod agents;
 mod env;
+mod file_links;
+mod file_preview;
 mod integrations;
 mod layouts;
 mod panes;
 pub(crate) mod plugins;
+mod read_process;
+mod reads;
 pub(super) mod responses;
 mod session;
 mod tabs;
@@ -27,6 +31,34 @@ enum RuntimeExitAction {
 }
 
 impl App {
+    pub(crate) fn task_source_context(
+        &self,
+        pane: &str,
+        boot_id: &str,
+    ) -> crate::task_store::Result<crate::api::schema::TaskSourceContextInfo> {
+        let missing = || {
+            crate::task_store::TaskError::new(
+                "pane_not_found",
+                "source pane not found at context read",
+            )
+        };
+        let (ws_idx, pane_id) = self.parse_pane_id(pane).ok_or_else(missing)?;
+        let workspace = &self.state.workspaces[ws_idx];
+        let pane = workspace.pane_state(pane_id).ok_or_else(missing)?;
+        let terminal = self
+            .state
+            .terminals
+            .get(&pane.attached_terminal_id)
+            .ok_or_else(missing)?;
+        Ok(crate::api::schema::TaskSourceContextInfo {
+            store_id: String::new(), // filled by the same endpoint's authoritative store worker
+            boot_id: boot_id.to_owned(),
+            pane_id: self.public_pane_id(ws_idx, pane_id).ok_or_else(missing)?,
+            workspace_id: self.public_workspace_id(ws_idx),
+            agent: terminal.effective_agent_label().map(str::to_owned),
+        })
+    }
+
     pub(crate) fn handle_internal_event_with_render_impact(&mut self, ev: AppEvent) -> bool {
         match ev {
             AppEvent::GitStatusRefreshed {
@@ -939,6 +971,18 @@ impl App {
         };
 
         let response = match request.method {
+            Method::TaskCreate(_)
+            | Method::TaskList(_)
+            | Method::TaskGet(_)
+            | Method::TaskSourceContext(_)
+            | Method::TaskUpdate(_)
+            | Method::TaskAppendConclusion(_) => {
+                return responses::encode_error(
+                    request.id,
+                    "background_required",
+                    "task transactions require the headless server background API executor",
+                );
+            }
             Method::ServerStop(_) => {
                 self.state.should_quit = true;
                 SuccessResponse {
@@ -1082,6 +1126,18 @@ impl App {
             Method::WorkspaceClose(target) => {
                 return self.handle_workspace_close(request.id, target);
             }
+            Method::FilePreview(_)
+            | Method::FileList(_)
+            | Method::FileRead(_)
+            | Method::GitStatus(_)
+            | Method::GitDiff(_)
+            | Method::GitLog(_) => {
+                return responses::encode_error(
+                    request.id,
+                    "invalid_request",
+                    "read requires deferred dispatch",
+                );
+            }
             Method::WorktreeList(_) | Method::WorktreeOpen(_) => {
                 return responses::encode_error(
                     request.id,
@@ -1178,6 +1234,12 @@ impl App {
             Method::PaneGet(target) => return self.handle_pane_get(request.id, target),
             Method::PaneFocus(target) => return self.handle_pane_focus(request.id, target),
             Method::PaneInputSet(params) => return self.handle_pane_input_set(request.id, params),
+            Method::PaneFileLinkResolve(params) => {
+                return self.handle_file_link_resolve(request.id, params)
+            }
+            Method::PaneFileLinkActivate(params) => {
+                return self.handle_file_link_activate(request.id, params)
+            }
             Method::PaneLinkResolve(params) => {
                 return self.handle_pane_link_resolve(request.id, params);
             }

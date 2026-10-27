@@ -205,6 +205,76 @@ pub(crate) fn plugin_runtime_path(path: &std::path::Path) -> std::path::PathBuf 
     plugin_runtime_path_platform(path)
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum PdfTool {
+    Info,
+    ToPpm,
+}
+
+impl PdfTool {
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Self::Info => "pdfinfo",
+            Self::ToPpm => "pdftoppm",
+        }
+    }
+
+    pub(crate) fn missing(self) -> std::io::Error {
+        std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!(
+                "{} is unavailable; install Poppler and make its executables available on PATH",
+                self.name()
+            ),
+        )
+    }
+}
+
+/// Only resolve the two PDF executables, never a shell or an implicit cwd candidate.
+pub(crate) fn resolve_pdf_tool(tool: PdfTool) -> std::io::Result<std::path::PathBuf> {
+    resolve_pdf_tool_with(
+        tool,
+        std::env::var_os("PATH").as_deref(),
+        pdf_tool_fallback_directories(),
+        pdf_tool_in_directory,
+    )
+}
+
+fn resolve_pdf_tool_with(
+    tool: PdfTool,
+    path: Option<&std::ffi::OsStr>,
+    fallback: &[&str],
+    find: impl Fn(&std::path::Path, PdfTool) -> Option<std::path::PathBuf>,
+) -> std::io::Result<std::path::PathBuf> {
+    // Relative/empty PATH entries would allow a document directory to supply code.
+    path.into_iter()
+        .flat_map(std::env::split_paths)
+        .chain(
+            fallback
+                .iter()
+                .map(|directory| std::path::PathBuf::from(*directory)),
+        )
+        .filter(|directory| directory.is_absolute())
+        .find_map(|directory| find(&directory, tool))
+        .ok_or_else(|| tool.missing())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn pdf_tool_fallback_directories() -> &'static [&'static str] {
+    &[]
+}
+
+#[cfg(unix)]
+use unix_common::pdf_tool_in_directory;
+
+#[cfg(not(any(unix, windows)))]
+fn pdf_tool_in_directory(
+    _directory: &std::path::Path,
+    _tool: PdfTool,
+) -> Option<std::path::PathBuf> {
+    None
+}
+
 pub(crate) fn normalize_cwd_for_launch(path: &std::path::Path) -> std::path::PathBuf {
     normalize_cwd_for_launch_platform(path)
 }
@@ -445,11 +515,15 @@ pub(crate) mod unix_image_files;
 #[cfg(unix)]
 pub(crate) use unix_common::{
     begin_cli_output, end_cli_output, forward_remote_bridge_stdio, ignore_server_hangup,
-    local_stream_peer_description, spawn_server_signal_monitor, RemoteBridgeWake,
+    local_stream_peer_description, spawn_server_signal_monitor, task_endpoint_identity,
+    RemoteBridgeWake,
 };
 
 mod client_state;
-pub(crate) use client_state::{create_private_state_file, replace_file, sync_parent_directory};
+pub(crate) use client_state::{
+    create_private_state_file, create_private_task_file, ensure_private_state_directory,
+    open_private_task_file, replace_file, sync_parent_directory,
+};
 
 #[cfg(not(unix))]
 pub(crate) fn begin_cli_output() {}
@@ -939,4 +1013,141 @@ pub(crate) fn shared_ssh_control_path(
         std::io::ErrorKind::Unsupported,
         "interactive SSH recovery requires Unix OpenSSH multiplexing",
     ))
+}
+
+pub(crate) struct ReadDirectoryEntry {
+    pub(crate) name: std::ffi::OsString,
+    pub(crate) directory: bool,
+    pub(crate) symlink: bool,
+}
+
+#[cfg(unix)]
+mod unix_read_files;
+#[cfg(unix)]
+pub(crate) use unix_read_files::{list_confined_directory, read_confined_file};
+
+// Until handle-relative no-reparse reads are implemented, do not fall back to
+// path-based Windows reads that could escape through a raced junction.
+#[cfg(not(unix))]
+pub(crate) fn read_confined_file(
+    _root: &std::path::Path,
+    _path: &std::path::Path,
+    _limit: usize,
+) -> std::io::Result<Vec<u8>> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "secure file preview is not supported on this platform",
+    ))
+}
+
+#[cfg(not(unix))]
+pub(crate) fn list_confined_directory(
+    _root: &std::path::Path,
+    _path: &std::path::Path,
+    _limit: usize,
+) -> std::io::Result<(Vec<ReadDirectoryEntry>, bool)> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "secure directory browsing is not supported on this platform",
+    ))
+}
+
+#[cfg(all(test, not(unix)))]
+mod confined_read_tests {
+    use super::*;
+
+    #[test]
+    fn unsupported_platform_reads_do_not_fall_back_to_path_based_access() {
+        let root = std::path::Path::new("C:\\not-accessed");
+        let child = std::path::Path::new("file");
+        assert_eq!(
+            read_confined_file(root, child, 16).unwrap_err().kind(),
+            std::io::ErrorKind::Unsupported,
+        );
+        assert!(matches!(
+            list_confined_directory(root, child, 16),
+            Err(error) if error.kind() == std::io::ErrorKind::Unsupported
+        ));
+    }
+}
+
+#[cfg(test)]
+mod pdf_tool_tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn pdf_tool_path_precedes_fallback_and_preserves_directory_order() {
+        let base = std::env::temp_dir();
+        let first = base.join("pdf-first");
+        let second = base.join("pdf-second");
+        let fallback = base.join("pdf-fallback");
+        let path = std::env::join_paths([&first, &second]).unwrap();
+        let find = |directory: &std::path::Path, tool: PdfTool| Some(directory.join(tool.name()));
+        assert_eq!(
+            resolve_pdf_tool_with(
+                PdfTool::Info,
+                Some(&path),
+                &[fallback.to_str().unwrap()],
+                find
+            )
+            .unwrap(),
+            first.join("pdfinfo")
+        );
+        assert_eq!(
+            resolve_pdf_tool_with(
+                PdfTool::ToPpm,
+                Some(&path),
+                &[fallback.to_str().unwrap()],
+                |directory, tool| { (directory == second).then(|| directory.join(tool.name())) }
+            )
+            .unwrap(),
+            second.join("pdftoppm")
+        );
+    }
+
+    #[test]
+    fn pdf_tool_falls_back_only_after_path_and_in_prefix_order() {
+        let base = std::env::temp_dir();
+        let missing = base.join("pdf-missing");
+        let first = base.join("pdf-fallback-first");
+        let second = base.join("pdf-fallback-second");
+        let path = std::env::join_paths([missing]).unwrap();
+        let prefixes = [first.to_str().unwrap(), second.to_str().unwrap()];
+        for path in [None, Some(path.as_os_str())] {
+            assert_eq!(
+                resolve_pdf_tool_with(PdfTool::Info, path, &prefixes, |directory, tool| {
+                    (directory == first || directory == second).then(|| directory.join(tool.name()))
+                })
+                .unwrap(),
+                first.join("pdfinfo")
+            );
+        }
+    }
+
+    #[test]
+    fn pdf_tool_missing_names_tool_and_install_hint_without_cwd_search() {
+        let path = std::env::join_paths([
+            PathBuf::new(),
+            PathBuf::from("."),
+            PathBuf::from("relative"),
+        ])
+        .unwrap();
+        for tool in [PdfTool::Info, PdfTool::ToPpm] {
+            let error = resolve_pdf_tool_with(tool, Some(&path), &[], |_, _| {
+                panic!("relative/empty PATH must not search document cwd")
+            })
+            .unwrap_err();
+            assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+            let message = error.to_string();
+            assert!(message.contains(tool.name()));
+            assert!(message.contains("install Poppler"));
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn pdf_tool_has_no_implicit_fallback_on_other_platforms() {
+        assert!(pdf_tool_fallback_directories().is_empty());
+    }
 }

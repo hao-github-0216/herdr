@@ -255,7 +255,7 @@ impl App {
         .map_err(|(_, message)| message)
     }
 
-    fn read_checked_pane_link<T>(
+    pub(super) fn read_checked_pane_link<T>(
         &self,
         id: &str,
         params: &PaneLinkActivateParams,

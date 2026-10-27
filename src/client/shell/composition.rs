@@ -152,6 +152,7 @@ impl ClientShellState {
         cols: u16,
         rows: u16,
     ) -> Option<crate::client::frame_output::ComposedFrame> {
+        self.discard_retired_overlay();
         self.last_composed_at = Some(std::time::Instant::now());
         self.selection_repaint_deadline = None;
         if self.last_composed_size != Some((cols, rows)) && self.mode == ClientShellMode::Navigate {
@@ -159,6 +160,8 @@ impl ClientShellState {
             self.reveal_mobile_workspace = true;
         }
         self.last_composed_size = Some((cols, rows));
+        self.clamp_inspector_scroll();
+        self.clamp_kanban_scroll();
         let valid_navigation_target = self.mode == ClientShellMode::Navigate
             && self
                 .navigate_workspace_id
@@ -338,6 +341,7 @@ impl ClientShellState {
             self.hits.tab_scroll_left = Rect::default();
             self.hits.tab_scroll_right = Rect::default();
         }
+        self.render_inspector(&mut buffer, layout.inspector);
         let mut frame = FrameData::from_ratatui_buffer_with_hyperlinks(&buffer, None, &[]);
         let mode_bar_cells = mode_bar.map(|bar| {
             let start = usize::from(bar.y) * usize::from(frame.width) + usize::from(bar.x);
@@ -644,7 +648,11 @@ impl ClientShellState {
         }
         if let Some(overlay) = self.overlay.as_ref() {
             let mut composed = frame.to_ratatui_buffer()?;
-            let cursor = if let ClientShellOverlay::ContextMenu(menu) = overlay {
+            let cursor = if matches!(overlay, ClientShellOverlay::Kanban) {
+                self.render_kanban(&mut composed);
+                occlusion.cover(composed.area);
+                None
+            } else if let ClientShellOverlay::ContextMenu(menu) = overlay {
                 let rendered =
                     render::render_context_menu(&mut composed, menu, &self.config.palette)?;
                 occlusion.cover(rendered.area);

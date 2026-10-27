@@ -15,6 +15,12 @@ const ENDPOINT_RESPONSE_CHUNK_BYTES: usize = 512 * 1024;
 const CLIENT_SHELL_METHODS: &[&str] = &[
     "client_shell.surface.set",
     "command.invoke",
+    "file.list",
+    "file.preview",
+    "file.read",
+    "git.diff",
+    "git.log",
+    "git.status",
     "integration.install",
     "integration.list",
     "layout.set_split_ratio",
@@ -23,6 +29,8 @@ const CLIENT_SHELL_METHODS: &[&str] = &[
     "pane.copy_motion",
     "pane.copy_search",
     "pane.edit_scrollback",
+    "pane.file_link.activate",
+    "pane.file_link.resolve",
     "pane.focus",
     "pane.focus_direction",
     "pane.input.set",
@@ -43,6 +51,12 @@ const CLIENT_SHELL_METHODS: &[&str] = &[
     "tab.focus",
     "tab.move",
     "tab.rename",
+    "task.append_conclusion",
+    "task.create",
+    "task.get",
+    "task.list",
+    "task.source_context",
+    "task.update",
     "workspace.close",
     "workspace.create",
     "workspace.focus",
@@ -298,10 +312,122 @@ mod tests {
             Some("f5e4a3e01453ae7b188f127ce951c12c20e0bebcc17cc364eeb6d1a01fd5bf81")
         );
 
+        // Freeze additive reads separately without rewriting generation 1.
+        for (method, digest) in [
+            (
+                "file.list",
+                "747afec629a3c1d39b4b433024a21fe5ea6f89b35696ba3629f22857816cde74",
+            ),
+            (
+                "file.preview",
+                "afa6ced832ef56f9f930d1dfb60bef75405d7b80344de36744de61f49c075ba8",
+            ),
+            (
+                "file.read",
+                "662f18317ceccab8273371128295ef7f56acc724c4391b227c9012a84738a838",
+            ),
+            (
+                "git.status",
+                "887f2e8258f68a2db78f935ffb7b4636f15cf582516192051b8660c41bc597df",
+            ),
+            (
+                "git.diff",
+                "30e0ac6920e106b09cdb02fd1f9d6da05b037187ebd57b9a542f5ec18b7a873f",
+            ),
+            (
+                "git.log",
+                "b7419fafc4d40fa35a639553beb341efecbc71d87d7cab5aa448eadad6573de2",
+            ),
+            (
+                "pane.file_link.activate",
+                "be22798156114cb6fba631e4cd18d0dc1f028f4413f98cee3ce5286082a0c090",
+            ),
+            (
+                "pane.file_link.resolve",
+                "5070569548ad4079d3c22bd21962bab8774ec8a0a26dd4eaf25987693735d9c0",
+            ),
+        ] {
+            assert_eq!(
+                actual.remove(method).as_deref(),
+                Some(digest),
+                "read method shape changed: {method}"
+            );
+        }
+        let task_shapes: BTreeMap<String, String> = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/task-method-shapes-v1.json"
+        )))
+        .expect("separate additive task shapes");
+        for (method, digest) in task_shapes
+            .into_iter()
+            .filter(|(name, _)| name.starts_with("task."))
+        {
+            assert_eq!(
+                actual.remove(&method).as_deref(),
+                Some(digest.as_str()),
+                "task method shape changed: {method}"
+            );
+        }
         assert_eq!(
             actual, expected,
             "an existing endpoint method changed shape; add load-bearing behavior as a new advertised method or explicitly gate new fields"
         );
+    }
+
+    #[test]
+    fn advertised_task_method_shapes_are_frozen_separately() {
+        let mut actual: BTreeMap<String, String> = endpoint_method_shape_digests()
+            .into_iter()
+            .filter(|(method, _)| method.starts_with("task."))
+            .collect();
+        let schema =
+            serde_json::to_value(schemars::schema_for!(crate::api::schema::ResponseResult))
+                .unwrap();
+        let definitions = schema["$defs"].as_object().unwrap();
+        for name in ["task_record", "task_list", "task_source_context"] {
+            let branch = schema["oneOf"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|branch| {
+                    branch
+                        .pointer("/properties/type/const")
+                        .and_then(serde_json::Value::as_str)
+                        == Some(name)
+                })
+                .unwrap();
+            let mut pending = BTreeSet::new();
+            collect_schema_refs(branch, &mut pending);
+            let mut visited = BTreeSet::new();
+            let mut selected = serde_json::Map::new();
+            while let Some(name) = pending.pop_first() {
+                if !visited.insert(name.clone()) {
+                    continue;
+                }
+                let definition = &definitions[&name];
+                collect_schema_refs(definition, &mut pending);
+                selected.insert(name, normalized_wire_schema(definition));
+            }
+            let shape = serde_json::json!({"response": normalized_wire_schema(branch), "definitions": selected});
+            actual.insert(
+                format!("response.{name}"),
+                format!("{:x}", Sha256::digest(serde_json::to_vec(&shape).unwrap())),
+            );
+        }
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/task-method-shapes-v1.json");
+        if std::env::var_os("HERDR_UPDATE_TASK_SHAPES").is_some() {
+            std::fs::write(
+                path,
+                format!("{}\n", serde_json::to_string_pretty(&actual).unwrap()),
+            )
+            .unwrap();
+            return;
+        }
+        let expected: BTreeMap<String, String> =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert_eq!(actual, expected);
+        assert_eq!(actual.len(), 9);
     }
 
     #[test]

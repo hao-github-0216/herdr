@@ -77,11 +77,38 @@ fn ensure_extension_dir(dir: &Path, agent: &str) -> io::Result<()> {
     )))
 }
 
+// Only these phase-1 managed assets gain task entry points. Never overwrite or
+// remove a foreign file/symlink just because it uses the conventional filename.
+fn check_owned_task_asset(path: &Path, id: &str) -> io::Result<()> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    let marker = format!("HERDR_INTEGRATION_ID={id}");
+    if !metadata.file_type().is_file()
+        || !fs::read_to_string(path)?.lines().any(|line| {
+            line.trim()
+                .trim_start_matches('/')
+                .trim_start_matches('#')
+                .trim()
+                == marker
+        })
+    {
+        return Err(io::Error::other(format!(
+            "foreign integration asset collision at {}; leaving it unchanged",
+            path.display()
+        )));
+    }
+    Ok(())
+}
+
 pub(crate) fn install_pi() -> io::Result<PathBuf> {
     let dir = pi_extension_dir()?;
     ensure_extension_dir(&dir, "pi")?;
 
     let path = dir.join(PI_EXTENSION_INSTALL_NAME);
+    check_owned_task_asset(&path, "pi")?;
     fs::write(&path, PI_EXTENSION_ASSET)?;
     Ok(path)
 }
@@ -135,6 +162,7 @@ pub(crate) fn install_claude() -> io::Result<ClaudeInstallPaths> {
     fs::create_dir_all(&hooks_dir)?;
 
     let hook_path = hooks_dir.join(CLAUDE_HOOK_INSTALL_NAME);
+    check_owned_task_asset(&hook_path, "claude")?;
     fs::write(&hook_path, CLAUDE_HOOK_ASSET)?;
     make_executable(&hook_path)?;
 
@@ -554,6 +582,7 @@ pub(crate) fn install_hermes() -> io::Result<HermesInstallPaths> {
 
 pub(crate) fn uninstall_pi() -> io::Result<PiUninstallResult> {
     let extension_path = pi_extension_dir()?.join(PI_EXTENSION_INSTALL_NAME);
+    check_owned_task_asset(&extension_path, "pi")?;
     let removed_extension = remove_file_if_exists(&extension_path)?;
 
     Ok(PiUninstallResult {
@@ -576,6 +605,7 @@ pub(crate) fn uninstall_claude() -> io::Result<ClaudeUninstallResult> {
     let dir = claude_dir()?;
     check_config_targets(&dir, &["settings.json"])?;
     let hook_path = dir.join("hooks").join(CLAUDE_HOOK_INSTALL_NAME);
+    check_owned_task_asset(&hook_path, "claude")?;
     let settings_path = dir.join("settings.json");
     let mut updated_settings = false;
 

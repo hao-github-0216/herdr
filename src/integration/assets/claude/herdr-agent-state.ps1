@@ -2,7 +2,7 @@
 # managed by herdr; reinstalling or updating the integration overwrites this file.
 # add custom hooks beside this file instead of editing it.
 # HERDR_INTEGRATION_ID=claude
-# HERDR_INTEGRATION_VERSION=11
+# HERDR_INTEGRATION_VERSION=12
 
 param([string]$Action = "")
 
@@ -51,5 +51,17 @@ try {
         $args += @("--session-start-source", "$($payload.source)")
     }
     & $herdr @args 2>$null | Out-Null
+} catch {
+}
+
+# Last reported selected session model; do not read settings or transcripts.
+try {
+    $metadataArgs = @("pane", "report-metadata", $env:HERDR_PANE_ID, "--source", "herdr:claude", "--agent", "claude", "--seq", "$($seq + 1)")
+    if ($payload.model -is [string] -and -not [string]::IsNullOrWhiteSpace($payload.model)) {
+        $metadataArgs += @("--token", "model=$($payload.model.Trim())", "--token", "model_agent=claude")
+    } else {
+        $metadataArgs += @("--clear-token", "model", "--clear-token", "model_agent")
+    }
+    & $herdr @metadataArgs 2>$null | Out-Null
 } catch {
 }

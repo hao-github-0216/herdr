@@ -4,6 +4,7 @@ use clap::{Arg, ArgAction, ArgGroup, Command, ValueHint};
 
 mod completion;
 mod machine;
+mod tasks;
 
 pub(super) fn command() -> Command {
     let command = Command::new("herdr")
@@ -40,6 +41,7 @@ pub(super) fn command() -> Command {
         .subcommand(workspace_command())
         .subcommand(worktree_command())
         .subcommand(tab_command())
+        .subcommand(tasks::command())
         .subcommand(notification_command())
         .subcommand(agent_command())
         .subcommand(pane_command())

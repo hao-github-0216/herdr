@@ -547,6 +547,54 @@ its own reconnect handling. Existing pane processes are unchanged by this cleanu
 
 `--env KEY=VALUE` can be repeated on process-launching commands. It applies to the newly launched process only. Herdr-managed variables such as `HERDR_SOCKET_PATH`, `HERDR_BIN_PATH`, `HERDR_ENV`, `HERDR_WORKSPACE_ID`, `HERDR_TAB_ID`, `HERDR_PANE_ID`, `HERDR_PLUGIN_ID`, `HERDR_PLUGIN_ROOT`, `HERDR_PLUGIN_CONFIG_DIR`, `HERDR_PLUGIN_STATE_DIR`, `HERDR_PLUGIN_ENTRYPOINT_ID`, and `HERDR_PLUGIN_CONTEXT_JSON` stay authoritative when they conflict with caller-provided env.
 
+## Bound Tasks adapter (not MCP)
+
+The original `task create/list/get/update/add-conclusion/source` CLI remains
+available for explicit compatibility use, alongside the bounded, noninteractive
+adapter below. Automatic Pi Tasks tools and Claude SessionStart Tasks guidance
+are withdrawn; fresh integrations keep only their state/session/model reporting.
+Existing hosts may retain previously loaded tools or guidance until natural reload.
+No inspector or Kanban entry is exposed by this custom client:
+
+```bash
+"$HERDR_BIN_PATH" task adapter discover
+printf '%s' '{"scope":"current","limit":10}' | "$HERDR_BIN_PATH" task adapter call list
+# Capture only for NEW work, then retain the complete operation JSON on uncertainty.
+"$HERDR_BIN_PATH" task adapter discover > task-context.json
+python3 -c 'import json; c=json.load(open("task-context.json")); print(json.dumps({"expected_context":c["context_fingerprint"],"title":"Fix parser","nonce":"issue-42-create"}))' > task-create.json
+"$HERDR_BIN_PATH" task adapter call create < task-create.json
+```
+
+`call` accepts only `list`, `get`, `source_context`, `create`, `update`, and
+`append_conclusion`. Discovery performs only read-only source/list probes and
+returns narrowed argument schemas and top-level `context_fingerprint` metadata,
+also returned by adapter `source_context`. Every mutation requires this
+caller-retained fingerprint as `expected_context` (`hctx1:<64 lowercase hex>`).
+Model arguments cannot override endpoint,
+socket, binary, pane, provenance, source boot, or workspace. Exact explicit
+`HERDR_BIN_PATH`/`HERDR_SOCKET_PATH`/`HERDR_PANE_ID`/`HERDR_WORKSPACE_ID` launch
+binding is required, with no PATH/default-store/another-endpoint fallback.
+
+Send one JSON object on stdin (16 KiB maximum); normal stdout is one machine JSON
+`ok`/`result` or `ok`/`error` envelope. Responses are bounded to 256 KiB and the
+operation to three seconds. List scope must explicitly be `current` or `all`, on
+the same endpoint, at most 50 summaries. Create defaults to the bound workspace;
+update cannot move workspace or rewrite provenance. Preserve caller
+`expected_context`, CAS `expected_revision`, and the original nonce **and payload**
+for the logical operation. Lost/malformed replies may mean a committed write:
+there are no automatic retries. Changed boot/store/binding returns `stale_context`
+before mutation dispatch, even if the prior write left no nonce entry. This says
+nothing about the previous outcome. Never refresh the guard or change nonce to
+silently rebase uncertain work; reconcile saved IDs/current records deliberately.
+Fresh context is for new work. Backend/raw CLI durable replay is unchanged.
+The guard is not authentication, and preflight is not an atomic boot/store write
+fence: restart after comparison but before write remains possible.
+
+`--help` includes examples. The [Tasks reference](https://github.com/herdrdev/herdr/blob/master/docs/next/api/tasks.md)
+describes all fields, uncertainty, migration and activation limits. This is
+explicit reporting only: no MCP server, auto-starting todos, claim/worker launch,
+automatic done/pass, integration reload, or deployment.
+
 ## Read sources
 
 | Source | Meaning |
@@ -564,7 +612,8 @@ These meanings apply to reads. For `pane wait-output` only, both `recent` and `r
 | --- | --- |
 | `HERDR_CONFIG_PATH` | Override the config file path. |
 | `HERDR_SESSION` | Select a named session for CLI commands. |
-| `HERDR_SOCKET_PATH` | Low-level socket path override. |
+| `HERDR_SOCKET_PATH` | Low-level socket path override; required exact endpoint binding for the Tasks adapter. |
+| `HERDR_BIN_PATH` | Managed launch executable; required absolute adapter binary, never a model-supplied path or PATH fallback. |
 | `HERDR_PROCESS_DETECTION` | Linux process detection strategy: `native` (default) or opt-in `child-groups`. |
 | `HERDR_ENV` | Set to `1` inside Herdr-managed pane processes. |
 | `HERDR_PANE_ID` | Public pane id for the running pane process. |

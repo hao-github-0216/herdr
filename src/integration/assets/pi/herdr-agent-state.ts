@@ -2,7 +2,7 @@
 // managed by herdr; reinstalling or updating the integration overwrites this file.
 // add custom hooks/plugins beside this file instead of editing it.
 // HERDR_INTEGRATION_ID=pi
-// HERDR_INTEGRATION_VERSION=9
+// HERDR_INTEGRATION_VERSION=10
 // @ts-nocheck
 
 import net from "node:net";
@@ -187,6 +187,24 @@ export default function (pi) {
   let lastState: AgentState | undefined;
   let lastMessage: string | undefined;
   let rootSession = false;
+  let modelEpoch = 0;
+  let sessionGeneration = 0;
+  let sessionReady = Promise.resolve();
+  let modelQueue = Promise.resolve();
+
+  // This token is the selected session model, not a physical dispatch guess.
+  // No TTL: authoritative session/model events replace or explicitly clear it.
+  function publishModel(value: unknown) {
+    const model = typeof value === "string" && value.trim() ? value.trim() : null;
+    const request = {
+      id: `${source}:model:${Date.now()}:${nextReportSeq()}`,
+      method: "pane.report_metadata",
+      params: { pane_id: paneId, source, agent: "pi", tokens: { model, model_agent: model === null ? null : "pi" }, seq: nextReportSeq() },
+    };
+    // Preserve order across retries; a late retry of A cannot overwrite B.
+    modelQueue = modelQueue.then(() => sendRequest(request));
+    return modelQueue;
+  }
 
   function desiredState() {
     if (blockedCount > 0) {
@@ -233,11 +251,25 @@ export default function (pi) {
       return;
     }
     rootSession = true;
+    const epoch = ++modelEpoch;
+    const generation = ++sessionGeneration;
     updateSessionRef(ctx);
-    await reportSession(event?.reason);
+    sessionReady = reportSession(event?.reason);
+    await sessionReady;
+    if (generation !== sessionGeneration) return;
+    if (epoch === modelEpoch) await publishModel(ctx?.model?.id);
     // A reload can replace this extension mid-run without emitting another agent_start.
     agentActive = ctx?.isIdle?.() === false;
     publishState(true);
+  });
+
+  pi.on("model_select", async (event, ctx) => {
+    if (!rootSession || ctx?.mode !== "tui") return;
+    ++modelEpoch;
+    const generation = sessionGeneration;
+    await sessionReady;
+    if (generation !== sessionGeneration) return;
+    await publishModel(event?.model?.id);
   });
 
   pi.on("agent_start", (_event, ctx) => {

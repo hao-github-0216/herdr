@@ -1132,7 +1132,7 @@ fn claude_v9_integration_status_is_outdated_until_reinstalled() {
 
     assert_eq!(claude.path, hook_path);
     assert_eq!(claude.installed_version, Some(9));
-    assert_eq!(claude.expected_version, 11);
+    assert_eq!(claude.expected_version, CLAUDE_INTEGRATION_VERSION);
     assert_eq!(claude.state, IntegrationStatusKind::Outdated);
 
     install_claude().unwrap();
@@ -1141,7 +1141,7 @@ fn claude_v9_integration_status_is_outdated_until_reinstalled() {
         hook_path,
         CLAUDE_INTEGRATION_VERSION,
     );
-    assert_eq!(status.installed_version, Some(11));
+    assert_eq!(status.installed_version, Some(CLAUDE_INTEGRATION_VERSION));
     assert_eq!(status.state, IntegrationStatusKind::Current);
 
     std::env::remove_var("HOME");
@@ -1171,7 +1171,7 @@ fn claude_v2_integration_status_is_outdated() {
 
     assert_eq!(claude.path, hook_path);
     assert_eq!(claude.installed_version, Some(2));
-    assert_eq!(claude.expected_version, 11);
+    assert_eq!(claude.expected_version, CLAUDE_INTEGRATION_VERSION);
     assert_eq!(claude.state, IntegrationStatusKind::Outdated);
 
     std::env::remove_var("HOME");
@@ -5189,5 +5189,43 @@ fn grok_dir_honors_grok_home_after_config_dir_seam() {
 
     std::env::remove_var(GROK_HOME_ENV_VAR);
     clear_integration_path_env();
+    let _ = fs::remove_dir_all(base);
+}
+
+#[test]
+fn tasks_owned_assets_foreign_collision_is_fail_closed_and_activation_is_not_disk_presence() {
+    let _lock = integration_env_lock();
+    let base = unique_base();
+    let home = base.join("home");
+    let pi = home.join(".pi/agent/extensions");
+    let claude = home.join(".claude/hooks");
+    fs::create_dir_all(&pi).unwrap();
+    fs::create_dir_all(&claude).unwrap();
+    std::env::set_var("HOME", &home);
+    let pi_path = pi.join(PI_EXTENSION_INSTALL_NAME);
+    let claude_path = claude.join(CLAUDE_HOOK_INSTALL_NAME);
+    fs::write(&pi_path, "foreign extension").unwrap();
+    fs::write(&claude_path, "foreign hook").unwrap();
+    assert!(install_pi().is_err());
+    assert!(install_claude().is_err());
+    assert!(uninstall_pi().is_err());
+    assert!(uninstall_claude().is_err());
+    assert_eq!(fs::read_to_string(&pi_path).unwrap(), "foreign extension");
+    assert_eq!(fs::read_to_string(&claude_path).unwrap(), "foreign hook");
+    fs::write(
+        &pi_path,
+        "// HERDR_INTEGRATION_ID=pi\n// HERDR_INTEGRATION_VERSION=10\n",
+    )
+    .unwrap();
+    assert!(
+        tasks_entry_status(crate::api::schema::IntegrationTarget::Pi, &pi_path)
+            .contains("automatic Tasks entry withdrawn")
+    );
+    install_pi().unwrap();
+    let status = tasks_entry_status(crate::api::schema::IntegrationTarget::Pi, &pi_path);
+    assert!(status.contains("direct compatibility CLI remains"));
+    assert!(status.contains("existing-session tools may persist"));
+    assert!(!status.contains("Tasks active"));
+    std::env::remove_var("HOME");
     let _ = fs::remove_dir_all(base);
 }

@@ -13,12 +13,27 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+pub(super) fn pdf_tool_in_directory(
+    directory: &std::path::Path,
+    tool: super::PdfTool,
+) -> Option<PathBuf> {
+    // Native binaries only: never route a .cmd/.bat shim through a shell.
+    ["exe", "com"]
+        .into_iter()
+        .map(|extension| directory.join(tool.name()).with_extension(extension))
+        .find(|candidate| candidate.is_file())
+}
+
 mod clipboard_image;
 mod config_backup;
 mod notifications;
+mod task_state;
 pub(crate) use notifications::{
     foreground_desktop_notification_host, maybe_activate_desktop_notification,
     show_actionable_desktop_notification, show_desktop_notification,
+};
+pub(crate) use task_state::{
+    create_private_task_file, ensure_private_task_directory, open_private_task_file,
 };
 
 static ALLOW_UNELEVATED_CLIENTS: OnceLock<bool> = OnceLock::new();
@@ -5455,4 +5470,17 @@ mod tests {
             );
         }
     }
+}
+
+/// Windows binds GenericNamespaced pipe names, not filesystem socket paths.
+/// Preserve the supplied name, including `..`, rather than merging distinct pipes.
+pub(crate) fn task_endpoint_identity(endpoint: &std::path::Path) -> std::io::Result<PathBuf> {
+    use std::os::windows::ffi::OsStrExt as _;
+    if endpoint.as_os_str().is_empty() || endpoint.as_os_str().encode_wide().any(|unit| unit == 0) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "invalid task endpoint name",
+        ));
+    }
+    Ok(endpoint.to_path_buf())
 }

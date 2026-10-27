@@ -169,6 +169,94 @@ class UiHotPathArchitectureTests(unittest.TestCase):
             + "\n".join(violations),
         )
 
+    def test_inspector_client_never_reads_files_or_spawns_processes(self) -> None:
+        inspector = PROJECT_ROOT / "src/client/shell/inspector.rs"
+        rules = (
+            (re.compile(r"\b(?:std|tokio)::(?:fs|process)\b"), "client filesystem/process access"),
+            (re.compile(r"\b(?:read_dir|canonicalize|read_confined_file|list_confined_directory)\s*\("), "client path access"),
+        )
+        self.assertEqual(find_violations((inspector,), rules), [])
+        source = inspector.read_text(encoding="utf-8")
+        self.assertIn("push_endpoint_method_with_kind", source)
+        self.assertIn("inspector_target_current", source)
+        self.assertIn("active_snapshot_generation", source)
+        self.assertIn("methods.as_ref()", source)
+
+    def test_inspector_reads_are_deferred_before_pane_scaled_api_capture(self) -> None:
+        source = (PROJECT_ROOT / "src/server/headless.rs").read_text(encoding="utf-8")
+        dispatch = source.index("self.app.start_api_read(msg.request, msg.respond_to)")
+        capture = source.index("// Capture toast and effective pane states before the API call")
+        self.assertLess(dispatch, capture)
+        worker = (PROJECT_ROOT / "src/app/api/reads.rs").read_text(encoding="utf-8")
+        self.assertLess(worker.index("try_acquire_owned()"), worker.index(".spawn(move ||"))
+        process = (PROJECT_ROOT / "src/app/api/read_process.rs").read_text(encoding="utf-8")
+        self.assertIn("tokio::time::timeout(timeout, read)", process)
+        self.assertIn("child.kill().await", process)
+        self.assertIn("child.wait().await", process)
+        for flag in ("--no-pager", "--literal-pathspecs", "--no-ext-diff", "--no-textconv", "core.fsmonitor=false"):
+            self.assertIn(flag, worker)
+        self.assertIn("filter_driver_overrides", worker)
+        self.assertIn("keys.truncated", worker)
+
+    def test_inspector_does_not_extend_frozen_wire_or_terminal_key_dispatch(self) -> None:
+        wire = (PROJECT_ROOT / "src/protocol/wire.rs").read_text(encoding="utf-8")
+        self.assertNotIn("Inspector", wire)
+        self.assertNotIn("FilePathParams", wire)
+        input_source = (PROJECT_ROOT / "src/client/shell/input.rs").read_text(encoding="utf-8")
+        self.assertNotIn("inspector", input_source)
+        inspector = (PROJECT_ROOT / "src/client/shell/inspector.rs").read_text(encoding="utf-8")
+        tick = inspector[inspector.index("pub(crate) fn tick_inspector"):]
+        self.assertLess(tick.index("if !self.inspector_visible()"), tick.index("queue.pop_front()"))
+        self.assertIn("outcome.resize = true", inspector)
+
+    def test_task_transactions_are_background_only_and_outside_pane_scaled_capture(self) -> None:
+        source = (PROJECT_ROOT / "src/server/headless.rs").read_text(encoding="utf-8")
+        dispatch = source.index("self.app.task_service.start(msg.request, msg.respond_to)")
+        self.assertLess(dispatch, source.index("let frozen_alt_screen_read ="))
+        self.assertLess(dispatch, source.index("// Capture toast and effective pane states before the API call"))
+        service = (PROJECT_ROOT / "src/task_service.rs").read_text(encoding="utf-8")
+        self.assertLess(service.index("self.admit()"), service.index(".spawn(move ||"))
+        self.assertLess(service.index(".spawn(move ||"), service.index("store.execute(request.method)"))
+        for path in HOT_PATH_SOURCES:
+            code = production_code(path.read_text(encoding="utf-8"))
+            self.assertNotIn("task_store", code, str(path))
+            self.assertNotIn("task_service", code, str(path))
+
+    def test_tasks_panel_is_endpoint_only_with_cached_pure_presentation(self) -> None:
+        tasks = PROJECT_ROOT / "src/client/shell/tasks.rs"
+        rules = (
+            (re.compile(r"\b(?:std|tokio)::(?:fs|process)\b"), "client filesystem/process access"),
+            (re.compile(r"\b(?:read_dir|canonicalize|decode|spawn|Command)\s*\("), "client IO/decode"),
+        )
+        board = PROJECT_ROOT / "src/client/shell/tasks/kanban.rs"
+        self.assertEqual(find_violations((tasks, board), rules), [])
+        source = tasks.read_text(encoding="utf-8")
+        tick = source[source.index("pub(super) fn tick_tasks"):source.index("pub(super) fn complete_tasks")]
+        self.assertLess(tick.index("self.active_tasks_surface().is_none()"), tick.index("push_endpoint_method_with_kind"))
+        board_source = board.read_text(encoding="utf-8")
+        surface = board_source[board_source.index("fn active_tasks_surface"):board_source.index("fn open_kanban")]
+        self.assertIn("ClientShellOverlay::Kanban", surface)
+        self.assertIn("InspectorView::Tasks && self.inspector_visible()", surface)
+        self.assertIn("None", surface)
+        self.assertNotIn("push_endpoint_method", board_source)
+        board_render = board_source[board_source.index("fn render_kanban"):board_source.index("fn route_kanban_mouse")]
+        for forbidden in (".prepare(", "UnicodeWidthStr::width", ".lines()", "&mut self"):
+            self.assertNotIn(forbidden, board_render)
+        self.assertNotIn(".prepare()", tick)
+        render = source[source.index("pub(super) fn render_tasks"):source.index("fn select_task")]
+        for forbidden in (".prepare()", "UnicodeWidthStr::width", ".lines()", "&mut self"):
+            self.assertNotIn(forbidden, render)
+        for guard in ("active_snapshot_generation", "target.generation", "target.selected", "source.store_id", "source.reported.boot_id", "agent_session.is_none()"):
+            self.assertIn(guard, source)
+
+    def test_tasks_do_not_extend_wire_snapshots_events_or_handoff_manifests(self) -> None:
+        for relative in ("src/protocol/wire.rs", "src/persist/snapshot.rs", "src/api/schema/events.rs", "src/api/schema/server.rs", "src/server/handoff.rs"):
+            code = production_code((PROJECT_ROOT / relative).read_text(encoding="utf-8"))
+            self.assertNotRegex(code, r"\b(?:TaskInfo|TaskStore|TaskStatus|TaskConclusion|TaskCreated|TaskUpdated|task_store|task_service)\b", relative)
+        lifecycle = (PROJECT_ROOT / "src/server/headless/lifecycle.rs").read_text(encoding="utf-8")
+        self.assertLess(lifecycle.index("task_service.quiesce("), lifecycle.index("spawn_handoff_import("))
+        self.assertIn("self.app.task_service.resume()", lifecycle)
+
     def test_scanner_ignores_non_production_references(self) -> None:
         source = '''
 // runtime.input_state()

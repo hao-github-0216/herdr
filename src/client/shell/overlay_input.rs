@@ -477,6 +477,10 @@ impl ClientShellState {
     ) {
         use crossterm::event::KeyModifiers;
 
+        if matches!(self.overlay, Some(ClientShellOverlay::Kanban)) {
+            self.handle_kanban_key(key, outcome);
+            return;
+        }
         if matches!(self.overlay, Some(ClientShellOverlay::Onboarding)) {
             if matches!(
                 key.code,

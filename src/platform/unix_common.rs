@@ -1,5 +1,16 @@
 use std::path::{Path, PathBuf};
 
+pub(super) fn pdf_tool_in_directory(directory: &Path, tool: super::PdfTool) -> Option<PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+    let candidate = directory.join(tool.name());
+    if !candidate.is_file() {
+        return None;
+    }
+    let name = std::ffi::CString::new(candidate.as_os_str().as_bytes()).ok()?;
+    // Follow Homebrew's executable symlinks, but reject non-executable files/directories.
+    (unsafe { libc::access(name.as_ptr(), libc::X_OK) } == 0).then_some(candidate)
+}
+
 pub(crate) fn classify_child_exit(status: &portable_pty::ExitStatus) -> super::ChildExitReason {
     if status.signal().is_some() {
         super::ChildExitReason::Interrupted
@@ -740,4 +751,55 @@ mod shared_ssh_tests {
         );
         std::fs::remove_dir_all(dir).unwrap();
     }
+}
+
+#[cfg(test)]
+mod pdf_tool_tests {
+    use super::*;
+    use std::os::unix::fs::{symlink, PermissionsExt};
+
+    #[test]
+    fn pdf_tool_requires_executable_file_but_accepts_symlink() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let directory =
+            std::env::temp_dir().join(format!("herdr-pdf-exec-{}-{nanos}", std::process::id()));
+        std::fs::create_dir(&directory).unwrap();
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let tool = super::super::PdfTool::Info;
+        let path = directory.join(tool.name());
+        assert!(pdf_tool_in_directory(&directory, tool).is_none());
+        std::fs::create_dir(&path).unwrap();
+        assert!(pdf_tool_in_directory(&directory, tool).is_none());
+        std::fs::remove_dir(&path).unwrap();
+        std::fs::write(&path, b"synthetic executable").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(pdf_tool_in_directory(&directory, tool).is_none());
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(pdf_tool_in_directory(&directory, tool), Some(path.clone()));
+        let target = directory.join("real-tool");
+        std::fs::rename(&path, &target).unwrap();
+        symlink(&target, &path).unwrap();
+        assert_eq!(pdf_tool_in_directory(&directory, tool), Some(path));
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+}
+
+/// Resolve the bound socket's existing parent, never its replaceable final inode.
+pub(crate) fn task_endpoint_identity(endpoint: &Path) -> std::io::Result<PathBuf> {
+    let endpoint = if endpoint.is_absolute() {
+        endpoint.to_path_buf()
+    } else {
+        std::env::current_dir()?.join(endpoint)
+    };
+    let name = endpoint
+        .file_name()
+        .ok_or_else(|| std::io::Error::other("missing endpoint filename"))?;
+    let parent = endpoint
+        .parent()
+        .ok_or_else(|| std::io::Error::other("missing endpoint parent"))?
+        .canonicalize()?;
+    Ok(parent.join(name))
 }

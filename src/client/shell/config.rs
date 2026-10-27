@@ -393,6 +393,7 @@ impl ClientShellConfig {
         if cols <= self.mobile_width_threshold {
             let header_height = rows.min(2);
             return ClientShellLayout {
+                inspector: Rect::default(),
                 sidebar: Rect::default(),
                 tab_bar: Rect::default(),
                 mobile_header: Rect::new(0, 0, cols, header_height),
@@ -439,6 +440,7 @@ impl ClientShellConfig {
         };
 
         ClientShellLayout {
+            inspector: Rect::default(),
             sidebar: Rect::new(0, 0, sidebar_width, rows),
             tab_bar,
             mobile_header: Rect::default(),

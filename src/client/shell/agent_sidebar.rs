@@ -264,14 +264,7 @@ pub(super) fn agent_row(
         .panes
         .iter()
         .find(|pane| pane.pane_id == agent.pane_id);
-    let tab_count = snapshot
-        .tabs
-        .iter()
-        .filter(|candidate| candidate.workspace_id == agent.workspace_id)
-        .count();
-    let tab_label = tab
-        .filter(|tab| tab_count > 1 || tab.custom_label)
-        .map(|tab| tab.label.as_str());
+    let tab_label = tab.map(|tab| tab.label.as_str());
     let agent_label = agent
         .display_agent
         .as_deref()
@@ -283,7 +276,7 @@ pub(super) fn agent_row(
         .iter()
         .cloned()
         .collect::<HashMap<_, _>>();
-    let tokens = agent.tokens.iter().cloned().collect::<HashMap<_, _>>();
+    let mut tokens = agent.tokens.iter().cloned().collect::<HashMap<_, _>>();
     let state_text = labels
         .get(status_text(agent.agent_status))
         .map(String::as_str)
@@ -292,6 +285,14 @@ pub(super) fn agent_row(
         .agent
         .as_deref()
         .and_then(crate::detect::parse_agent_label);
+    // A pane can later host another CLI while generic metadata remains. Only
+    // display model metadata whose explicit owner matches the actual agent kind;
+    // display_agent/name are presentation labels, not model ownership evidence.
+    if canonical_agent.is_none_or(|kind| {
+        tokens.get("model_agent").map(String::as_str) != Some(crate::detect::agent_label(kind))
+    }) {
+        tokens.remove("model");
+    }
     let rows = crate::ui::sidebar_agent_rows(
         &config.agents,
         crate::ui::AgentTokenContext {
@@ -392,5 +393,118 @@ fn sidebar_status_text(status: crate::api::schema::AgentStatus) -> &'static str 
         AgentStatus::Done => "done",
         AgentStatus::Working => "working",
         AgentStatus::Idle | AgentStatus::Unknown => "idle",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ui::ResolvedTokenKind;
+
+    #[test]
+    fn default_agent_rows_prioritize_real_tab_and_reported_model_and_preserve_custom_rows() {
+        let mut snapshot = crate::client::shell::tests::snapshot();
+        snapshot.tabs[0].label = "1".into();
+        snapshot.tabs[0].custom_label = false;
+        snapshot.agents.push(crate::protocol::ClientShellAgent {
+            pane_id: "pane_1".into(),
+            workspace_id: "ws_1".into(),
+            tab_id: "tab_1".into(),
+            name: None,
+            display_agent: None,
+            agent: Some("pi".into()),
+            title: None,
+            terminal_title: None,
+            terminal_title_stripped: None,
+            agent_status: crate::api::schema::AgentStatus::Idle,
+            state_change_seq: 0,
+            state_labels: Vec::new(),
+            tokens: vec![
+                ("model".into(), "selected-model".into()),
+                ("model_agent".into(), "pi".into()),
+            ],
+            focused: true,
+        });
+        let mut config = ClientShellConfig::from_config(&Config::default());
+        let row = agent_row(&snapshot, "pane_1", &config, None).unwrap();
+        assert!(row.rows[0]
+            .iter()
+            .any(|token| token.kind == ResolvedTokenKind::Tab("1".into())));
+        assert!(row.rows[0]
+            .iter()
+            .any(|token| token.kind == ResolvedTokenKind::Custom("selected-model".into())));
+        assert!(!row.rows[0]
+            .iter()
+            .any(|token| matches!(token.kind, ResolvedTokenKind::Workspace(_))));
+        snapshot.tabs[0].label = "review patch".into();
+        snapshot.agents[0].tokens.clear();
+        let row = agent_row(&snapshot, "pane_1", &config, None).unwrap();
+        assert!(row.rows[0]
+            .iter()
+            .any(|token| token.kind == ResolvedTokenKind::Tab("review patch".into())));
+        assert!(!row.rows[0]
+            .iter()
+            .any(|token| matches!(token.kind, ResolvedTokenKind::Custom(_))));
+        config.agents.rows = vec![vec![crate::config::AgentSidebarToken::Workspace]];
+        let row = agent_row(&snapshot, "pane_1", &config, None).unwrap();
+        assert!(matches!(
+            &row.rows[0][0].kind,
+            ResolvedTokenKind::Workspace(_)
+        ));
+        assert_eq!(row.rows[0].len(), 1);
+    }
+    #[test]
+    fn model_owner_must_match_actual_agent_and_other_custom_tokens_are_unchanged() {
+        let mut snapshot = crate::client::shell::tests::snapshot();
+        snapshot.agents.push(crate::protocol::ClientShellAgent {
+            pane_id: "pane_1".into(),
+            workspace_id: "ws_1".into(),
+            tab_id: "tab_1".into(),
+            name: None,
+            display_agent: Some("pi".into()),
+            agent: Some("pi".into()),
+            title: None,
+            terminal_title: None,
+            terminal_title_stripped: None,
+            agent_status: crate::api::schema::AgentStatus::Idle,
+            state_change_seq: 0,
+            state_labels: Vec::new(),
+            tokens: Vec::new(),
+            focused: true,
+        });
+        let mut config = ClientShellConfig::from_config(&Config::default());
+        config.agents.rows = vec![vec![
+            crate::config::AgentSidebarToken::Custom("model".into()),
+            crate::config::AgentSidebarToken::Custom("summary".into()),
+        ]];
+        for (kind, owner, expected_model) in [
+            ("pi", Some("pi"), true),
+            ("codex", Some("pi"), false),
+            ("pi", None, false),
+            ("pi", Some("claude"), false),
+            ("claude", Some("claude"), true),
+        ] {
+            snapshot.agents[0].agent = Some(kind.into());
+            snapshot.agents[0].tokens = vec![
+                ("model".into(), "selected".into()),
+                ("summary".into(), "keep-custom".into()),
+            ];
+            if let Some(owner) = owner {
+                snapshot.agents[0]
+                    .tokens
+                    .push(("model_agent".into(), owner.into()));
+            }
+            let row = agent_row(&snapshot, "pane_1", &config, None).unwrap();
+            assert_eq!(
+                row.rows[0]
+                    .iter()
+                    .any(|token| token.kind == ResolvedTokenKind::Custom("selected".into())),
+                expected_model,
+                "kind={kind}, owner={owner:?}"
+            );
+            assert!(row.rows[0]
+                .iter()
+                .any(|token| token.kind == ResolvedTokenKind::Custom("keep-custom".into())));
+        }
     }
 }

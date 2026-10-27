@@ -163,21 +163,40 @@ impl ClientShellState {
                 .iter()
                 .find(|endpoint| endpoint.endpoint_id == self.active_endpoint_id)
                 .and_then(|endpoint| endpoint.methods.as_ref())
-                .is_some_and(|methods| methods.iter().any(|method| method == "pane.link.resolve"))
+                .is_some_and(|methods| {
+                    methods.iter().any(|method| {
+                        method == "pane.link.resolve"
+                            || (self.retired_presentation_enabled()
+                                && method == "pane.file_link.resolve")
+                    })
+                })
         {
             if let Some(hover) = self.link_hover.as_mut() {
                 hover.resolved = true;
             }
             return;
         }
+        let params = PaneLinkActivateParams {
+            pane_id: target.pane_id.clone(),
+            viewport_row: target.row,
+            col: target.col,
+            content_revision: Some(target.content_revision),
+            offset_from_bottom: target.offset_from_bottom,
+        };
+        let file_resolve = self.retired_presentation_enabled()
+            && self
+                .endpoints
+                .iter()
+                .find(|endpoint| endpoint.endpoint_id == self.active_endpoint_id)
+                .and_then(|endpoint| endpoint.methods.as_ref())
+                .is_some_and(|methods| methods.contains("pane.file_link.resolve"));
+        let method = if file_resolve {
+            crate::api::schema::Method::PaneFileLinkResolve(params)
+        } else {
+            crate::api::schema::Method::PaneLinkResolve(params)
+        };
         self.push_endpoint_method_with_kind(
-            crate::api::schema::Method::PaneLinkResolve(PaneLinkActivateParams {
-                pane_id: target.pane_id.clone(),
-                viewport_row: target.row,
-                col: target.col,
-                content_revision: Some(target.content_revision),
-                offset_from_bottom: target.offset_from_bottom,
-            }),
+            method,
             PendingEndpointKind::PaneLinkResolve { target },
             outcome,
         );
@@ -257,7 +276,9 @@ impl ClientShellState {
         };
         let hyperlink = hyperlink_at(target.col, target.row)?;
         let uri = surface.frame.hyperlinks.get(hyperlink as usize)?;
-        if crate::app::actions::safe_web_url(uri).is_none() {
+        if crate::app::actions::safe_web_url(uri).is_none()
+            && !(self.supports_file_link() && uri.starts_with("file://"))
+        {
             return Some(Vec::new());
         }
         let width = usize::from(rect.width);

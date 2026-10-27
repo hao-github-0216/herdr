@@ -2151,6 +2151,90 @@
           ],
           "type": "object"
         },
+        "FilePathParams": {
+          "properties": {
+            "path": {
+              "default": "",
+              "type": "string"
+            },
+            "root": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "root"
+          ],
+          "type": "object"
+        },
+        "FilePreviewParams": {
+          "properties": {
+            "height": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "page": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "path": {
+              "type": "string"
+            },
+            "root": {
+              "type": "string"
+            },
+            "width": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "root",
+            "path",
+            "page",
+            "width",
+            "height"
+          ],
+          "type": "object"
+        },
+        "GitDiffParams": {
+          "properties": {
+            "cwd": {
+              "type": "string"
+            },
+            "original_path": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "path": {
+              "type": "string"
+            },
+            "staged": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "cwd",
+            "path",
+            "staged"
+          ],
+          "type": "object"
+        },
+        "GitReadParams": {
+          "properties": {
+            "cwd": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "cwd"
+          ],
+          "type": "object"
+        },
         "IntegrationInstallParams": {
           "properties": {
             "target": {
@@ -4357,6 +4441,276 @@
           ],
           "type": "object"
         },
+        "TaskAppendConclusionParams": {
+          "additionalProperties": false,
+          "properties": {
+            "expected_revision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "nonce": {
+              "type": "string"
+            },
+            "provenance": {
+              "$ref": "#/schemas/request/$defs/TaskProvenance",
+              "default": {
+                "agent": null,
+                "agent_session": null,
+                "boot_id": null,
+                "pane_id": null,
+                "reporter": null
+              }
+            },
+            "task_id": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "task_id",
+            "expected_revision",
+            "nonce",
+            "text"
+          ],
+          "type": "object"
+        },
+        "TaskCreateParams": {
+          "additionalProperties": false,
+          "properties": {
+            "description": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "nonce": {
+              "type": "string"
+            },
+            "provenance": {
+              "$ref": "#/schemas/request/$defs/TaskProvenance",
+              "default": {
+                "agent": null,
+                "agent_session": null,
+                "boot_id": null,
+                "pane_id": null,
+                "reporter": null
+              }
+            },
+            "status": {
+              "anyOf": [
+                {
+                  "$ref": "#/schemas/request/$defs/TaskStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "title": {
+              "type": "string"
+            },
+            "workspace_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "workspace_label": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "nonce",
+            "title"
+          ],
+          "type": "object"
+        },
+        "TaskListParams": {
+          "additionalProperties": false,
+          "properties": {
+            "after": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "limit": {
+              "format": "uint",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "status": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "workspace_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "type": "object"
+        },
+        "TaskProvenance": {
+          "additionalProperties": false,
+          "properties": {
+            "agent": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "agent_session": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "boot_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "pane_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "reporter": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "type": "object"
+        },
+        "TaskSourceContextParams": {
+          "additionalProperties": false,
+          "description": "Endpoint-local observation, not authenticated agent authorship or session proof.",
+          "properties": {
+            "pane_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "pane_id"
+          ],
+          "type": "object"
+        },
+        "TaskStatus": {
+          "enum": [
+            "todo",
+            "working",
+            "blocked",
+            "review",
+            "done"
+          ],
+          "type": "string"
+        },
+        "TaskTarget": {
+          "additionalProperties": false,
+          "properties": {
+            "task_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "task_id"
+          ],
+          "type": "object"
+        },
+        "TaskUpdateParams": {
+          "additionalProperties": false,
+          "properties": {
+            "description": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "expected_revision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "reported_verification": {
+              "anyOf": [
+                {
+                  "$ref": "#/schemas/request/$defs/TaskVerification"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "status": {
+              "anyOf": [
+                {
+                  "$ref": "#/schemas/request/$defs/TaskStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "task_id": {
+              "type": "string"
+            },
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "verification_evidence": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "workspace_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "workspace_label": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "task_id",
+            "expected_revision"
+          ],
+          "type": "object"
+        },
+        "TaskVerification": {
+          "enum": [
+            "unknown",
+            "pass",
+            "fail"
+          ],
+          "type": "string"
+        },
         "ToastHerdrPosition": {
           "enum": [
             "top-left",
@@ -4681,6 +5035,230 @@
       },
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "oneOf": [
+        {
+          "properties": {
+            "method": {
+              "const": "task.create",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/TaskCreateParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "task.list",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/TaskListParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "task.get",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/TaskTarget"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "task.source_context",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/TaskSourceContextParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "task.update",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/TaskUpdateParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "task.append_conclusion",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/TaskAppendConclusionParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "pane.file_link.resolve",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/PaneLinkActivateParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "pane.file_link.activate",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/PaneLinkActivateParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "file.preview",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/FilePreviewParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "file.list",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/FilePathParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "file.read",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/FilePathParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "git.status",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/GitReadParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "git.diff",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/GitDiffParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "git.log",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/GitReadParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
         {
           "properties": {
             "method": {
@@ -7485,6 +8063,165 @@
           ],
           "type": "string"
         },
+        "FileEntry": {
+          "properties": {
+            "directory": {
+              "type": "boolean"
+            },
+            "path": {
+              "type": "string"
+            },
+            "symlink": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "path",
+            "directory",
+            "symlink"
+          ],
+          "type": "object"
+        },
+        "FilePreviewContent": {
+          "oneOf": [
+            {
+              "properties": {
+                "kind": {
+                  "const": "text",
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                },
+                "truncated": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "kind",
+                "text",
+                "truncated"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "image": {
+                  "$ref": "#/schemas/success_response/$defs/PreviewRaster"
+                },
+                "kind": {
+                  "const": "image",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "image"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "image": {
+                  "$ref": "#/schemas/success_response/$defs/PreviewRaster"
+                },
+                "kind": {
+                  "const": "pdf",
+                  "type": "string"
+                },
+                "page": {
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "pages": {
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "kind",
+                "image",
+                "page",
+                "pages"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "kind": {
+                  "const": "unavailable",
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "reason",
+                "message"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "FileReference": {
+          "properties": {
+            "column": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "line": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "type": "object"
+        },
+        "GitFileEntry": {
+          "properties": {
+            "index": {
+              "type": "string"
+            },
+            "original_path": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "path": {
+              "type": "string"
+            },
+            "worktree": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "index",
+            "worktree"
+          ],
+          "type": "object"
+        },
         "InstalledPluginInfo": {
           "properties": {
             "actions": {
@@ -9149,6 +9886,41 @@
             }
           ]
         },
+        "PreviewRaster": {
+          "properties": {
+            "height": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "original_height": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "original_width": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "rgb_base64": {
+              "type": "string"
+            },
+            "width": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "width",
+            "height",
+            "original_width",
+            "original_height",
+            "rgb_base64"
+          ],
+          "type": "object"
+        },
         "ReadFormat": {
           "enum": [
             "text",
@@ -9167,6 +9939,245 @@
         },
         "ResponseResult": {
           "oneOf": [
+            {
+              "properties": {
+                "context": {
+                  "$ref": "#/schemas/success_response/$defs/TaskSourceContextInfo"
+                },
+                "type": {
+                  "const": "task_source_context",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "context"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "conclusion_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "replayed": {
+                  "type": "boolean"
+                },
+                "store_id": {
+                  "type": "string"
+                },
+                "task": {
+                  "$ref": "#/schemas/success_response/$defs/TaskInfo"
+                },
+                "type": {
+                  "const": "task_record",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "store_id",
+                "task",
+                "replayed"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "next_after": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "store_id": {
+                  "type": "string"
+                },
+                "tasks": {
+                  "items": {
+                    "$ref": "#/schemas/success_response/$defs/TaskSummary"
+                  },
+                  "type": "array"
+                },
+                "type": {
+                  "const": "task_list",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "store_id",
+                "tasks"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "content": {
+                  "$ref": "#/schemas/success_response/$defs/FilePreviewContent"
+                },
+                "type": {
+                  "const": "file_preview",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "content"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "reference": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/schemas/success_response/$defs/FileReference"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": {
+                  "const": "file_reference",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "entries": {
+                  "items": {
+                    "$ref": "#/schemas/success_response/$defs/FileEntry"
+                  },
+                  "type": "array"
+                },
+                "root": {
+                  "type": "string"
+                },
+                "truncated": {
+                  "type": "boolean"
+                },
+                "type": {
+                  "const": "file_list",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "root",
+                "entries",
+                "truncated"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "binary": {
+                  "type": "boolean"
+                },
+                "text": {
+                  "type": "string"
+                },
+                "truncated": {
+                  "type": "boolean"
+                },
+                "type": {
+                  "const": "file_read",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "text",
+                "binary",
+                "truncated"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "branch": {
+                  "type": "string"
+                },
+                "entries": {
+                  "items": {
+                    "$ref": "#/schemas/success_response/$defs/GitFileEntry"
+                  },
+                  "type": "array"
+                },
+                "root": {
+                  "type": "string"
+                },
+                "truncated": {
+                  "type": "boolean"
+                },
+                "type": {
+                  "const": "git_status",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "root",
+                "branch",
+                "entries",
+                "truncated"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "text": {
+                  "type": "string"
+                },
+                "truncated": {
+                  "type": "boolean"
+                },
+                "type": {
+                  "const": "git_diff",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "text",
+                "truncated"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "root": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                },
+                "truncated": {
+                  "type": "boolean"
+                },
+                "type": {
+                  "const": "git_log",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "root",
+                "text",
+                "truncated"
+              ],
+              "type": "object"
+            },
             {
               "properties": {
                 "capabilities": {
@@ -10570,6 +11581,234 @@
             "focused",
             "pane_count",
             "agent_status"
+          ],
+          "type": "object"
+        },
+        "TaskConclusion": {
+          "properties": {
+            "conclusion_id": {
+              "type": "string"
+            },
+            "recorded_at_unix_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "source": {
+              "$ref": "#/schemas/success_response/$defs/TaskSource"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "conclusion_id",
+            "text",
+            "recorded_at_unix_ms",
+            "source"
+          ],
+          "type": "object"
+        },
+        "TaskInfo": {
+          "properties": {
+            "conclusions": {
+              "items": {
+                "$ref": "#/schemas/success_response/$defs/TaskConclusion"
+              },
+              "type": "array"
+            },
+            "created_at_unix_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "description": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "reported_verification": {
+              "type": "string"
+            },
+            "revision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "source": {
+              "$ref": "#/schemas/success_response/$defs/TaskSource"
+            },
+            "status": {
+              "type": "string"
+            },
+            "task_id": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "updated_at_unix_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "verification_evidence": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "workspace_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "workspace_label": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "task_id",
+            "revision",
+            "title",
+            "status",
+            "reported_verification",
+            "source",
+            "created_at_unix_ms",
+            "updated_at_unix_ms",
+            "conclusions"
+          ],
+          "type": "object"
+        },
+        "TaskProvenance": {
+          "additionalProperties": false,
+          "properties": {
+            "agent": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "agent_session": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "boot_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "pane_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "reporter": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "type": "object"
+        },
+        "TaskSource": {
+          "properties": {
+            "reported": {
+              "$ref": "#/schemas/success_response/$defs/TaskProvenance"
+            },
+            "store_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "store_id",
+            "reported"
+          ],
+          "type": "object"
+        },
+        "TaskSourceContextInfo": {
+          "properties": {
+            "agent": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "boot_id": {
+              "type": "string"
+            },
+            "pane_id": {
+              "type": "string"
+            },
+            "store_id": {
+              "type": "string"
+            },
+            "workspace_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "store_id",
+            "boot_id",
+            "pane_id",
+            "workspace_id"
+          ],
+          "type": "object"
+        },
+        "TaskSummary": {
+          "properties": {
+            "reported_verification": {
+              "type": "string"
+            },
+            "revision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "status": {
+              "type": "string"
+            },
+            "task_id": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "updated_at_unix_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "workspace_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "workspace_label": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "task_id",
+            "revision",
+            "title",
+            "status",
+            "reported_verification",
+            "updated_at_unix_ms"
           ],
           "type": "object"
         },

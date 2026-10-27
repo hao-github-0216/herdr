@@ -59,6 +59,7 @@ pub(super) struct ClientShellLayout {
     pub tab_bar: Rect,
     pub mobile_header: Rect,
     pub pane_surface: Rect,
+    pub inspector: Rect,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -290,6 +291,7 @@ pub(super) enum ClientShellOverlayKind {
     WorktreeRemove,
     ContextMenu,
     GlobalMenu,
+    Kanban,
     Settings,
 }
 
@@ -593,6 +595,7 @@ pub(super) enum ClientShellOverlay {
     WorktreeRemove(ClientWorktreeRemoveOverlay),
     ContextMenu(ClientContextMenuOverlay),
     GlobalMenu(ClientGlobalMenuOverlay),
+    Kanban,
     Settings(ClientSettingsOverlay),
 }
 
@@ -611,6 +614,7 @@ impl ClientShellOverlay {
             Self::WorktreeRemove(_) => ClientShellOverlayKind::WorktreeRemove,
             Self::ContextMenu(_) => ClientShellOverlayKind::ContextMenu,
             Self::GlobalMenu(_) => ClientShellOverlayKind::GlobalMenu,
+            Self::Kanban => ClientShellOverlayKind::Kanban,
             Self::Settings(_) => ClientShellOverlayKind::Settings,
         }
     }
@@ -618,6 +622,14 @@ impl ClientShellOverlay {
 
 #[derive(Debug)]
 pub(super) enum PendingEndpointKind {
+    Tasks {
+        target: super::tasks::TaskTarget,
+        read: super::tasks::TaskRead,
+    },
+    Inspector {
+        target: super::inspector::InspectorTarget,
+        read: super::inspector::InspectorRead,
+    },
     Generic,
     ProductAnnouncementDismiss {
         version: String,
@@ -655,7 +667,13 @@ pub(super) enum PendingEndpointKind {
     PaneLinkResolve {
         target: super::link_hover::LinkHoverTarget,
     },
+    FileLinkActivate {
+        attempt: super::inspector::FileLinkAttempt,
+        inner_rect: Rect,
+        fallback_events: Vec<crossterm::event::MouseEvent>,
+    },
     PaneLinkActivate {
+        file_attempt: Option<super::inspector::FileLinkAttempt>,
         pane_id: String,
         inner_rect: Rect,
         fallback_events: Vec<crossterm::event::MouseEvent>,
@@ -906,6 +924,11 @@ pub(crate) struct ClientShellState {
     pub(super) overlay: Option<ClientShellOverlay>,
     pub(super) previous_pane_id: Option<String>,
     pub(super) pane_mouse_gesture: Option<ClientPaneMouseGesture>,
+    pub(super) tasks: super::tasks::Tasks,
+    pub(super) inspector: super::inspector::Inspector,
+    #[cfg(test)]
+    pub(super) retired_presentation_fixture: bool,
+    pub(super) pending_file_open: Option<super::inspector::PendingFileOpen>,
     pub(super) link_hover: Option<super::link_hover::LinkHover>,
     pub(super) url_click_consumes_until_up: bool,
     /// The host terminal reports key releases (Kitty event types), so text
@@ -1080,6 +1103,11 @@ impl ClientShellState {
             overlay,
             previous_pane_id: None,
             pane_mouse_gesture: None,
+            tasks: super::tasks::Tasks::default(),
+            inspector: super::inspector::Inspector::default(),
+            #[cfg(test)]
+            retired_presentation_fixture: false,
+            pending_file_open: None,
             link_hover: None,
             url_click_consumes_until_up: false,
             host_reports_key_releases: false,
@@ -1219,13 +1247,19 @@ impl ClientShellState {
     }
 
     pub(super) fn layout(&self, cols: u16, rows: u16) -> ClientShellLayout {
-        self.config.layout(
+        let mut layout = self.config.layout(
             cols,
             rows,
             self.sidebar_collapsed,
             self.focused_tab_count(),
             self.sidebar_width,
-        )
+        );
+        super::inspector::reserve_area(
+            &mut layout,
+            self.retired_presentation_enabled() && self.inspector.open,
+            self.inspector.preferred_width,
+        );
+        layout
     }
 
     pub(crate) fn surface_size(&self, cols: u16, rows: u16) -> ClientSurfaceSize {
@@ -1586,6 +1620,7 @@ impl ClientShellState {
             }
         }
         self.snapshot = Some(snapshot);
+        self.sync_inspector_source();
         self.reconcile_pending_workspace_highlight();
         let pending_surface = self.pending_pane_surface.take();
         if let Some(surface) = pending_surface {

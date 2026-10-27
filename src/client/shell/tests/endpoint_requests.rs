@@ -451,6 +451,7 @@ fn cancelled_link_activation_does_not_replay_mouse_input() {
             offset_from_bottom: None,
         }),
         PendingEndpointKind::PaneLinkActivate {
+            file_attempt: None,
             pane_id,
             inner_rect,
             fallback_events: vec![MouseEvent {
@@ -483,4 +484,36 @@ fn another_machine_disconnect_does_not_cancel_active_popup() {
     state.mark_endpoint_disconnected(&remote);
     assert!(state.popup_pending);
     assert_eq!(state.pending_requests.len(), 1);
+}
+
+#[test]
+fn global_menu_lists_described_custom_commands_and_invokes_them() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    let mut projection = snapshot();
+    for (id, description) in [("cmd_hidden", None), ("cmd_nav", Some("資料夾導覽"))] {
+        projection.commands.push(crate::protocol::ClientShellCommand {
+            command_id: id.into(),
+            binding_label: "prefix+e".into(),
+            binding_labels: vec!["prefix+e".into()],
+            action: crate::protocol::ClientShellCommandAction::Popup,
+            description: description.map(Into::into),
+        });
+    }
+    state.set_snapshot(Box::new(projection));
+    state.set_pane_surface(surface());
+    let items = super::super::global_menu::global_menu_items(state.snapshot.as_deref().unwrap());
+    assert_eq!(items[0].0.as_ref(), "資料夾導覽");
+    assert_eq!(
+        items[0].1,
+        super::super::global_menu::ClientGlobalMenuAction::Command(1)
+    );
+    assert_eq!(items.iter().filter(|(_, a)| matches!(a, super::super::global_menu::ClientGlobalMenuAction::Command(_))).count(), 1);
+    let mut outcome = ClientShellInput::default();
+    state.activate_global_menu_item(0, &mut outcome);
+    assert!(state.popup_pending);
+    let [ClientShellAction::Endpoint { request, .. }] = &outcome.actions[..] else {
+        panic!("expected one endpoint request");
+    };
+    let text = serde_json::to_string(&request).unwrap();
+    assert!(text.contains("cmd_nav"), "{text}");
 }

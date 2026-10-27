@@ -548,6 +548,11 @@ fn finish_wait_response(
     result
 }
 
+#[cfg(test)]
+pub(crate) fn handle_front_door_for_test(request: Request, api_tx: &ApiRequestSender) -> String {
+    handle_request(request, api_tx, None, None, None, None)
+}
+
 fn handle_request(
     request: Request,
     api_tx: &ApiRequestSender,
@@ -603,6 +608,12 @@ fn handle_request(
 
 pub(crate) fn api_method_name(method: &Method) -> &'static str {
     match method {
+        Method::TaskCreate(_) => "task.create",
+        Method::TaskList(_) => "task.list",
+        Method::TaskGet(_) => "task.get",
+        Method::TaskSourceContext(_) => "task.source_context",
+        Method::TaskUpdate(_) => "task.update",
+        Method::TaskAppendConclusion(_) => "task.append_conclusion",
         Method::Ping(_) => "ping",
         Method::ServerStop(_) => "server.stop",
         Method::ServerLiveHandoff(_) => "server.live_handoff",
@@ -627,6 +638,14 @@ pub(crate) fn api_method_name(method: &Method) -> &'static str {
         Method::WorkspaceMoveBlock(_) => "workspace.move_block",
         Method::WorkspaceReportMetadata(_) => "workspace.report_metadata",
         Method::WorkspaceClose(_) => "workspace.close",
+        Method::PaneFileLinkResolve(_) => "pane.file_link.resolve",
+        Method::PaneFileLinkActivate(_) => "pane.file_link.activate",
+        Method::FilePreview(_) => "file.preview",
+        Method::FileList(_) => "file.list",
+        Method::FileRead(_) => "file.read",
+        Method::GitStatus(_) => "git.status",
+        Method::GitDiff(_) => "git.diff",
+        Method::GitLog(_) => "git.log",
         Method::WorktreeList(_) => "worktree.list",
         Method::WorktreeCreate(_) => "worktree.create",
         Method::WorktreeOpen(_) => "worktree.open",

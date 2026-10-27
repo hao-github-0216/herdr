@@ -3,7 +3,7 @@
 # managed by herdr; reinstalling or updating the integration overwrites this file.
 # add custom hooks beside this file instead of editing it.
 # HERDR_INTEGRATION_ID=claude
-# HERDR_INTEGRATION_VERSION=11
+# HERDR_INTEGRATION_VERSION=12
 
 set -eu
 
@@ -85,16 +85,28 @@ if agent_session_id:
 else:
     raise SystemExit(0)
 
-try:
-    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    client.settimeout(0.5)
-    client.connect(socket_path)
-    client.sendall((json.dumps(request) + "\n").encode())
+def send(request):
     try:
-        client.recv(4096)
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+            client.settimeout(0.5)
+            client.connect(socket_path)
+            client.sendall((json.dumps(request) + "\n").encode())
+            try:
+                client.recv(4096)
+            except Exception:
+                pass
     except Exception:
         pass
-    client.close()
-except Exception:
-    pass
+
+send(request)
+# SessionStart is authoritative even when Claude omits the model after /clear.
+# This does not claim to observe later /model changes on older Claude versions.
+model = hook_input.get("model")
+model = model.strip() if isinstance(model, str) and model.strip() else None
+send({
+    "id": request_id + ":model",
+    "method": "pane.report_metadata",
+    "params": {"pane_id": pane_id, "source": source, "agent": "claude",
+               "seq": report_seq + 1, "tokens": {"model": model, "model_agent": "claude" if model is not None else None}},
+})
 PY

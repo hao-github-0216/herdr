@@ -221,6 +221,7 @@ impl ClientShellState {
     }
 
     pub(crate) fn handle_raw_events(&mut self, events: Vec<RawInputEvent>) -> ClientShellInput {
+        self.discard_retired_overlay();
         let mut outcome = ClientShellInput::default();
         if !events.is_empty() && self.endpoint_error.take().is_some() {
             self.endpoint_error_deadline = None;
@@ -253,6 +254,7 @@ impl ClientShellState {
                             ClientShellOverlay::Onboarding
                                 | ClientShellOverlay::ProductAnnouncement(_)
                                 | ClientShellOverlay::ReleaseNotes(_)
+                                | ClientShellOverlay::Kanban
                         )
                     ) {
                         self.reconcile_input_source();
@@ -286,6 +288,7 @@ impl ClientShellState {
                             ClientShellOverlay::Onboarding
                                 | ClientShellOverlay::ProductAnnouncement(_)
                                 | ClientShellOverlay::ReleaseNotes(_)
+                                | ClientShellOverlay::Kanban
                         )
                     ) {
                         self.reconcile_input_source();
@@ -622,6 +625,7 @@ impl ClientShellState {
                 ClientShellOverlay::Onboarding
                     | ClientShellOverlay::ProductAnnouncement(_)
                     | ClientShellOverlay::ReleaseNotes(_)
+                    | ClientShellOverlay::Kanban
             )
         ) {
             if key.kind == KeyEventKind::Press {
@@ -1100,6 +1104,7 @@ impl ClientShellState {
                 ClientShellOverlay::Onboarding
                     | ClientShellOverlay::ProductAnnouncement(_)
                     | ClientShellOverlay::ReleaseNotes(_)
+                    | ClientShellOverlay::Kanban
             )
         ) || self
             .copy_mode

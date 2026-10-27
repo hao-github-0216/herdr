@@ -731,7 +731,19 @@ fn update_ready_menu_opens_client_owned_release_notes_and_dismisses_by_version()
         .join("\n");
     assert!(text.contains("● update ready"));
     let update_row = state.hits.global_menu_rows[3].0;
-    assert_eq!(update_row.width, 16);
+    let items = super::super::global_menu::global_menu_items(state.snapshot.as_deref().unwrap());
+    let label_width = items
+        .iter()
+        .map(|(label, action)| {
+            label.width() as u16
+                + u16::from(super::super::global_menu::global_menu_item_has_badge(
+                    state.snapshot.as_deref().unwrap(),
+                    *action,
+                )) * 2
+        })
+        .max()
+        .unwrap();
+    assert_eq!(update_row.width, label_width + 2);
     let menu_buffer = menu.to_ratatui_buffer().expect("menu buffer");
     assert_eq!(
         menu_buffer[(update_row.x + 1, update_row.y)].fg,
